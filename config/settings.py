@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     "corsheaders",
     "branches",
     "accounts",
+    "inventory",
     # "django_otp", "django_otp.plugins.otp_totp",  # add when you build MFA for Owner/Manager
 ]
 
@@ -136,4 +137,12 @@ CSRF_COOKIE_SECURE = env.bool("CSRF_COOKIE_SECURE", default=False)
 X_FRAME_OPTIONS = "DENY"
 SECURE_CONTENT_TYPE_NOSNIFF = True
 
-CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])
+CORS_ALLOWED_ORIGINS = env.list(
+    "CORS_ALLOWED_ORIGINS",
+    default=["http://localhost:5173", "http://127.0.0.1:5173"],
+)
+# client.js sends credentials: "include" on every request (so a future
+# httpOnly refresh-token cookie will be sent automatically once that flow is
+# wired up) — without this, the browser rejects ANY credentialed cross-origin
+# response outright, regardless of CORS_ALLOWED_ORIGINS being correct.
+CORS_ALLOW_CREDENTIALS = True
