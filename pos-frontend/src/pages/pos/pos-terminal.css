@@ -1,0 +1,369 @@
+/* frontend-pos/pos-terminal.css
+   Design language: a real till, not a generic dashboard.
+   Palette — paper white / market green / price-tag amber / ink / error red.
+   The cart is styled as an actual receipt: torn top edge, dot-leader
+   price lines, monospace tabular numbers, and a "printing" slide-in as
+   items are added.
+*/
+
+:root {
+  --paper: #F7F6F2;
+  --paper-line: #E7E3D9;
+  --ink: #232323;
+  --ink-soft: #6B6558;
+  --market-green: #1F4D3E;
+  --market-green-dark: #163a2e;
+  --tag-amber: #E2A33C;
+  --error-red: #C1443C;
+  --radius: 10px;
+  --font-ui: "Manrope", "Inter", system-ui, sans-serif;
+  --font-num: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pos-root * { animation: none !important; transition: none !important; }
+}
+
+.pos-root {
+  /* This page has its own fixed light "paper" palette, not a dark-mode
+     variant — without this, admin-frontend's global `color-scheme: light
+     dark` (from index.css, leftover from the Vite scaffold) makes browsers
+     apply dark-mode UA defaults to native form controls. That's invisible
+     white-on-white text on <button> elements (.pos-tile, .pos-payment-
+     option) whenever the OS/browser prefers dark mode, since color is not
+     otherwise inherited into buttons by default. */
+  color-scheme: light;
+  font-family: var(--font-ui);
+  color: var(--ink);
+  background: var(--paper);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* index.css (leftover Vite scaffold) sets a global, dark-mode-aware
+   `h1, h2 { color: var(--text-h) }` — override it within this page so
+   headings use the till's own palette instead of a color meant for a
+   different page's dark-mode background. */
+.pos-root h1,
+.pos-root h2 {
+  color: var(--ink);
+}
+
+/* ---------- Login screen ---------- */
+.pos-login {
+  max-width: 360px;
+  margin: 10vh auto;
+  padding: 32px;
+  background: #fff;
+  border: 1px solid var(--paper-line);
+  border-radius: var(--radius);
+}
+.pos-login h1 {
+  font-size: 1.4rem;
+  margin: 0 0 4px;
+}
+.pos-login p.eyebrow {
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin: 0 0 20px;
+}
+.pos-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.pos-field label { font-size: 0.85rem; color: var(--ink-soft); }
+.pos-field input {
+  font-family: var(--font-ui);
+  font-size: 1rem;
+  padding: 10px 12px;
+  border: 1px solid var(--paper-line);
+  border-radius: 6px;
+  background: var(--paper);
+}
+.pos-field input:focus-visible {
+  outline: 2px solid var(--market-green);
+  outline-offset: 1px;
+}
+.pos-button-primary {
+  width: 100%;
+  padding: 12px;
+  background: var(--market-green);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background 120ms ease, transform 80ms ease;
+}
+.pos-button-primary:hover { background: var(--market-green-dark); }
+.pos-button-primary:active { transform: scale(0.98); }
+.pos-error {
+  color: var(--error-red);
+  font-size: 0.85rem;
+  margin-top: 10px;
+}
+
+/* ---------- Till header ---------- */
+.pos-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--paper-line);
+  background: #fff;
+}
+.pos-header .till-id {
+  font-family: var(--font-num);
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+}
+.pos-header h1 { font-size: 1.1rem; margin: 0; }
+.pos-logout {
+  background: none;
+  border: 1px solid var(--paper-line);
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-family: var(--font-ui);
+  cursor: pointer;
+  color: var(--ink-soft);
+}
+
+/* ---------- Main split layout ---------- */
+.pos-main {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 0;
+  min-height: 0;
+}
+
+/* ---------- Product search / grid ---------- */
+.pos-catalog { padding: 20px; overflow-y: auto; }
+.pos-search {
+  width: 100%;
+  padding: 14px 16px;
+  font-size: 1.05rem;
+  border: 1px solid var(--paper-line);
+  border-radius: var(--radius);
+  margin-bottom: 16px;
+  font-family: var(--font-ui);
+  background: #fff;
+}
+.pos-search:focus-visible { outline: 2px solid var(--market-green); }
+
+.pos-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+.pos-tile {
+  background: #fff;
+  border: 1px solid var(--paper-line);
+  border-radius: var(--radius);
+  padding: 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 120ms ease, transform 80ms ease;
+}
+.pos-tile:hover { border-color: var(--market-green); }
+.pos-tile:active { transform: scale(0.97); }
+.pos-tile .tile-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+  display: block;
+  margin-bottom: 6px;
+}
+.pos-tile .tile-price {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+  color: var(--market-green);
+  font-size: 1.05rem;
+}
+.pos-tile .tile-low-stock {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.72rem;
+  color: var(--tag-amber);
+  font-weight: 600;
+}
+
+/* ---------- Receipt-tape cart (the signature element) ---------- */
+.pos-receipt-panel {
+  background: var(--market-green);
+  padding: 20px 0 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.pos-receipt-tape {
+  background: #fff;
+  margin: 0 20px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  clip-path: polygon(
+    0% 12px, 4% 0%, 8% 12px, 12% 0%, 16% 12px, 20% 0%, 24% 12px, 28% 0%,
+    32% 12px, 36% 0%, 40% 12px, 44% 0%, 48% 12px, 52% 0%, 56% 12px, 60% 0%,
+    64% 12px, 68% 0%, 72% 12px, 76% 0%, 80% 12px, 84% 0%, 88% 12px, 92% 0%,
+    96% 12px, 100% 0%, 100% 100%, 0% 100%
+  );
+  padding-top: 22px;
+}
+.pos-receipt-items {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 20px;
+  font-family: var(--font-num);
+  font-size: 0.9rem;
+}
+.pos-receipt-empty {
+  color: var(--ink-soft);
+  font-family: var(--font-ui);
+  font-size: 0.9rem;
+  text-align: center;
+  padding: 40px 10px;
+}
+.pos-line-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px dashed var(--paper-line);
+  animation: pos-print-in 180ms ease-out;
+}
+@keyframes pos-print-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.pos-line-item .line-name {
+  font-family: var(--font-ui);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pos-line-item .line-dots {
+  flex: 1;
+  border-bottom: 1px dotted var(--ink-soft);
+  margin-bottom: 4px;
+  min-width: 10px;
+}
+.pos-line-item .line-price {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.pos-line-item .line-qty-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-ui);
+}
+.pos-line-item .line-qty-controls button {
+  width: 20px; height: 20px;
+  border: 1px solid var(--paper-line);
+  background: var(--paper);
+  border-radius: 4px;
+  cursor: pointer;
+  line-height: 1;
+  font-size: 0.85rem;
+}
+
+.pos-receipt-total {
+  padding: 16px 20px;
+  border-top: 1px solid var(--paper-line);
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-family: var(--font-num);
+}
+.pos-receipt-total .label {
+  font-family: var(--font-ui);
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.pos-receipt-total .amount {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--tag-amber);
+  font-variant-numeric: tabular-nums;
+}
+
+.pos-payment-row {
+  display: flex;
+  gap: 8px;
+  padding: 0 20px 14px;
+  margin: 0 20px;
+  background: #fff;
+}
+.pos-payment-option {
+  flex: 1;
+  padding: 10px;
+  border: 1px solid var(--paper-line);
+  background: var(--paper);
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 0.85rem;
+  text-align: center;
+}
+.pos-payment-option[data-active="true"] {
+  border-color: var(--market-green);
+  background: #eaf3ef;
+  color: var(--market-green-dark);
+  font-weight: 600;
+}
+
+.pos-complete-sale {
+  margin: 0 20px 20px;
+  padding: 18px;
+  background: var(--tag-amber);
+  color: var(--ink);
+  border: none;
+  border-radius: 8px;
+  font-family: var(--font-ui);
+  font-weight: 700;
+  font-size: 1.05rem;
+  cursor: pointer;
+  transition: transform 80ms ease;
+}
+.pos-complete-sale:active { transform: scale(0.98); }
+.pos-complete-sale:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.pos-toast-error {
+  margin: 0 20px 12px;
+  padding: 10px 14px;
+  background: #fdece9;
+  border: 1px solid var(--error-red);
+  color: var(--error-red);
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+
+/* ---------- Post-sale confirmation ---------- */
+.pos-confirmation {
+  margin: 20px;
+  padding: 24px;
+  background: #fff;
+  border-radius: var(--radius);
+  text-align: center;
+}
+.pos-confirmation .stamp {
+  display: inline-block;
+  padding: 6px 16px;
+  border: 2px solid var(--market-green);
+  color: var(--market-green);
+  border-radius: 4px;
+  font-family: var(--font-num);
+  font-weight: 700;
+  transform: rotate(-3deg);
+  margin-bottom: 12px;
+}
