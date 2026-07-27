@@ -17,11 +17,15 @@ from django.db import transaction
 
 from accounts.models import Role
 from branches.models import Branch
-from inventory.models import Category, Product, Stock
+from inventory import services
+from inventory.models import Category, Product, StockMovement
 
 User = get_user_model()
 
-DEMO_PASSWORD = "DemoPass123!"
+# Not a real secret: a published, known demo credential for local
+# click-through testing only, and handle() refuses to run outside DEBUG so
+# it can never seed this into a real deployment.
+DEMO_PASSWORD = "DemoPass123!"  # nosec B105
 
 
 class Command(BaseCommand):
@@ -88,9 +92,22 @@ class Command(BaseCommand):
             # Deliberately uneven quantities: branch A looks healthy, branch
             # B is below its reorder threshold, so the "low stock" warning
             # in the UI has something real to show.
-            Stock.objects.update_or_create(product=coke, branch=branch_a, defaults={"quantity": 100})
-            Stock.objects.update_or_create(product=fanta, branch=branch_a, defaults={"quantity": 40})
-            Stock.objects.update_or_create(product=coke, branch=branch_b, defaults={"quantity": 5})
+            #
+            # Seeded via services.receive_stock(), never Stock.objects.create/
+            # update — direct writes to Stock.quantity are exactly the bug
+            # the movement ledger exists to prevent (Stock.quantity would
+            # stop matching the sum of StockMovement rows for that product/
+            # branch). Guarded by "no existing movement" so re-running this
+            # command stays idempotent instead of re-adding stock each time.
+            for product, branch, quantity in (
+                (coke, branch_a, 100),
+                (fanta, branch_a, 40),
+                (coke, branch_b, 5),
+            ):
+                if not StockMovement.objects.filter(product=product, branch=branch).exists():
+                    services.receive_stock(
+                        product=product, branch=branch, quantity=quantity, performed_by=owner
+                    )
 
         self.stdout.write(self.style.SUCCESS("Demo data seeded."))
         self.stdout.write(f"  Branches: {branch_a.name}, {branch_b.name}")

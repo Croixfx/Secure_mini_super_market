@@ -74,20 +74,31 @@ Specifically:
 
 `bandit` (in `requirements.txt` as a dev/CI dependency) runs against this
 repo via `bandit -r .`, configured by the `.bandit` file at the project
-root. That config excludes `*/tests.py`, `*/migrations/*`, and `*/venv/*`
-from the scan.
+root. That config excludes `*/tests.py`, `*/tests_*.py`, `*/migrations/*`,
+and `*/venv/*` from the scan.
 
-Test files are excluded deliberately, not silently: `accounts/tests.py`
-creates users with literal strings like `password="pw"` as fixture data for
-`APITestCase` — these trip bandit's `B106`/`B107`
-("hardcoded_password_funcarg" / "hardcoded_password_default") rules. That's
-a false positive, not a finding — the strings aren't credentials for any
-real account, they never leave the test database, and flagging them adds
-noise to every scan without surfacing an actual secret. Migrations are
-excluded because they're generated code, not hand-written logic. `venv/` is
+Test files are excluded deliberately, not silently: `accounts/tests.py`,
+`inventory/tests.py`, and `inventory/tests_movements.py` create users with
+literal strings like `password="pw"` as fixture data for `APITestCase` —
+these trip bandit's `B106`/`B107` ("hardcoded_password_funcarg" /
+"hardcoded_password_default") rules. That's a false positive, not a
+finding — the strings aren't credentials for any real account, they never
+leave the test database, and flagging them adds noise to every scan
+without surfacing an actual secret. The exclude pattern is `*/tests_*.py`
+rather than one entry per file, so it also covers whatever the next
+`tests_<feature>.py` file turns out to be named. Migrations are excluded
+because they're generated code, not hand-written logic. `venv/` is
 excluded because bandit should scan the project's own code, not its
 third-party dependencies (`pip-audit`, also in `requirements.txt`, is the
 right tool for dependency vulnerabilities).
+
+One finding is suppressed inline rather than by path:
+`inventory/management/commands/seed_demo_data.py` hardcodes a demo
+password (`# nosec B105`). Unlike test fixtures, this file isn't excluded
+wholesale — it's real seeding logic that deserves normal scanning, and only
+the one line is a known non-secret (a published demo credential, and the
+command refuses to run outside `DEBUG`, so it can never seed a real
+deployment).
 
 Real hardcoded-password findings in application code (`models.py`,
 `views.py`, `serializers.py`, etc.) are still in scope and would still be

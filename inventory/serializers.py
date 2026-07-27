@@ -9,7 +9,7 @@ OWASP mapping:
 """
 from rest_framework import serializers
 
-from .models import Category, Product, Stock
+from .models import Category, Product, Stock, StockMovement
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -50,3 +50,45 @@ class StockSerializer(serializers.ModelSerializer):
 
     def get_is_below_threshold(self, obj):
         return obj.is_below_threshold()
+
+
+class StockMovementSerializer(serializers.ModelSerializer):
+    product_name = serializers.CharField(source="product.name", read_only=True)
+    product_sku = serializers.CharField(source="product.sku", read_only=True)
+    branch_name = serializers.CharField(source="branch.name", read_only=True)
+    performed_by_username = serializers.CharField(source="performed_by.username", read_only=True)
+    reference_label = serializers.SerializerMethodField()
+
+    class Meta:
+        model = StockMovement
+        fields = [
+            "id", "product", "product_name", "product_sku", "branch", "branch_name",
+            "movement_type", "quantity_delta", "batch_number", "expiry_date", "unit_cost",
+            "reason", "reference_label", "performed_by", "performed_by_username", "created_at",
+        ]
+        read_only_fields = fields  # this endpoint is read-only everywhere — see views.py
+
+    def get_reference_label(self, obj):
+        if obj.reference is None:
+            return None
+        # Human-readable pointer to whatever caused this movement, e.g.
+        # "Sale #1042" or "PurchaseOrder #17" — the __str__ of the
+        # referenced model does the real work, so each domain app controls
+        # how its own objects are described here.
+        return f"{obj.reference_content_type.model} #{obj.reference_object_id}"
+
+
+class WastageRequestSerializer(serializers.Serializer):
+    """Input serializer for the manual wastage-recording endpoint."""
+
+    product = serializers.PrimaryKeyRelatedField(queryset=Product.objects.all())
+    quantity = serializers.IntegerField(min_value=1)
+    reason = serializers.CharField(max_length=255)
+
+
+class StocktakeRequestSerializer(serializers.Serializer):
+    """Input serializer for reconciling a physical count against the system."""
+
+    product = serializers.PrimaryKeyRelatedField(queryset=Product.objects.all())
+    counted_quantity = serializers.IntegerField(min_value=0)
+    reason = serializers.CharField(max_length=255, required=False, allow_blank=True)

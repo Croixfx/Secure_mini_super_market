@@ -1,2 +1,2 @@
 [bandit]
-exclude = */tests.py,*/migrations/*,*/venv/*
+exclude = */tests.py,*/tests_*.py,*/migrations/*,*/venv/*
