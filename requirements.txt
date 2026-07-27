@@ -1,0 +1,12 @@
+Django==5.0.*
+djangorestframework==3.15.*
+djangorestframework-simplejwt==5.3.*
+argon2-cffi==23.1.*
+django-cors-headers==4.4.*
+django-environ==0.11.*
+# django-otp==1.5.*                 # uncomment when MFA is added for Owner/Manager
+# psycopg2-binary==2.9.*            # PostgreSQL driver, add once wired to real DB
+
+# --- security tooling (dev / CI, not runtime) ---
+bandit==1.7.*
+pip-audit==2.7.*
