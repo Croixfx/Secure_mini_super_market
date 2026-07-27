@@ -8,6 +8,7 @@ first place that pattern gets exercised outside of accounts/.
 """
 from rest_framework import status, viewsets, permissions as drf_permissions
 from rest_framework.decorators import action
+from rest_framework.filters import SearchFilter
 from rest_framework.response import Response
 
 from accounts.models import Role
@@ -40,6 +41,11 @@ class ProductViewSet(viewsets.ModelViewSet):
 
     queryset = Product.objects.filter(is_active=True).order_by("name")
     serializer_class = ProductSerializer
+    filter_backends = [SearchFilter]
+    # Barcode is included so a scanner's fast keyboard-input burst (which
+    # lands in the same search box) matches a product directly, not just
+    # typed name searches.
+    search_fields = ["name", "sku", "barcode"]
 
     def get_permissions(self):
         if self.action in ("create", "update", "partial_update", "destroy"):

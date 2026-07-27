@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     "branches",
     "accounts",
     "inventory",
+    "sales",
     # "django_otp", "django_otp.plugins.otp_totp",  # add when you build MFA for Owner/Manager
 ]
 
