@@ -5,6 +5,7 @@ import "./pos-terminal.css";
 
 export default function POSTerminal() {
   const [role, setRole] = useState(null);
+  const [restoring, setRestoring] = useState(true);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
@@ -18,14 +19,36 @@ export default function POSTerminal() {
   const [idempotencyKey, setIdempotencyKey] = useState(newIdempotencyKey());
   const [submitting, setSubmitting] = useState(false);
 
+  function applyAccessToken(access) {
+    setAccessToken(access);
+    const payload = JSON.parse(atob(access.split(".")[1]));
+    setRole(payload.role);
+  }
+
+  // Runs once on app load: a page refresh no longer means "log back in" —
+  // if the browser still has a valid httpOnly refresh cookie from an
+  // earlier login, this silently gets a fresh access token from it. A
+  // rejection here (no cookie yet, or it expired) is just "not logged in,"
+  // not an error to show the cashier.
+  useEffect(() => {
+    (async () => {
+      try {
+        const { access } = await posApi.refreshSilent();
+        applyAccessToken(access);
+      } catch {
+        // no session to restore — normal, land on the sign-in screen
+      } finally {
+        setRestoring(false);
+      }
+    })();
+  }, []);
+
   async function handleLogin(e) {
     e.preventDefault();
     setLoginError("");
     try {
       const { access } = await posApi.login(username, password);
-      setAccessToken(access);
-      const payload = JSON.parse(atob(access.split(".")[1]));
-      setRole(payload.role);
+      applyAccessToken(access);
       await loadProducts();
     } catch (err) {
       setLoginError(err.message);
@@ -95,11 +118,21 @@ export default function POSTerminal() {
     }
   }
 
-  function handleLogout() {
+  async function handleLogout() {
+    try {
+      await posApi.logout(); // blacklists the refresh token and clears its cookie server-side
+    } catch {
+      // Even if this fails (e.g. already expired), still clear client state
+      // below — the cashier's goal is to end up logged out either way.
+    }
     clearAccessToken();
     setRole(null);
     setCart([]);
     setProducts([]);
+  }
+
+  if (restoring) {
+    return <div className="pos-root" />;
   }
 
   if (!role) {

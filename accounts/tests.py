@@ -6,6 +6,7 @@ in models.py/views.py/permissions.py, not just to exercise the happy path.
 Each test class maps to one AAA pillar or one OWASP category — structure it
 this way in your README too, it reads very well to a reviewer.
 """
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.urls import reverse
@@ -141,3 +142,146 @@ class MassAssignmentProtectionTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
         created = User.objects.get(username="sneaky")
         self.assertFalse(created.is_superuser)
+
+
+class RefreshCookieTests(APITestCase):
+    """
+    A02/A07 - the refresh token must never be reachable from JS. Proves it
+    lives only in an httpOnly cookie (never the JSON body), that a page
+    refresh can restore a session from that cookie alone, and that rotation/
+    blacklisting/logout all operate on the cookie rather than a body value.
+    """
+
+    def setUp(self):
+        cache.clear()
+        self.user = User.objects.create_user(username="cashier1", password="pw")
+        self.login_url = reverse("token_obtain_pair")
+        self.refresh_silent_url = reverse("refresh_silent")
+        self.logout_url = reverse("logout")
+
+    def test_login_response_body_has_no_refresh_token(self):
+        resp = self.client.post(self.login_url, {"username": "cashier1", "password": "pw"})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertIn("access", resp.data)
+        self.assertNotIn("refresh", resp.data)
+
+    def test_login_sets_httponly_secure_samesite_lax_cookie(self):
+        resp = self.client.post(self.login_url, {"username": "cashier1", "password": "pw"})
+        cookie = resp.cookies[settings.REFRESH_TOKEN_COOKIE_NAME]
+        self.assertNotEqual(cookie.value, "")
+        self.assertTrue(cookie["httponly"])
+        self.assertEqual(cookie["samesite"], "Lax")
+        # secure=True only when SESSION_COOKIE_SECURE is (env-driven, off for
+        # local http:// dev) — asserting it mirrors that setting, not a
+        # hardcoded True, is the point: this must turn on in production
+        # automatically, not require remembering to flip it here too.
+        self.assertEqual(bool(cookie["secure"]), settings.SESSION_COOKIE_SECURE)
+
+    def test_refresh_silent_without_cookie_is_rejected(self):
+        resp = self.client.post(self.refresh_silent_url)
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_refresh_silent_with_valid_cookie_restores_session(self):
+        """The actual point of this feature: a client with NO access token
+        (e.g. a fresh page load) but a valid refresh cookie can get a new
+        access token without the user re-entering credentials."""
+        self.client.post(self.login_url, {"username": "cashier1", "password": "pw"})
+        # Simulate a page refresh: a brand-new client-side request carrying
+        # only the cookie the browser stored, no Authorization header at all.
+        resp = self.client.post(self.refresh_silent_url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertIn("access", resp.data)
+        self.assertNotIn("refresh", resp.data)  # rotated cookie, still never in the body
+
+    def test_refresh_silent_rotates_the_cookie_and_blacklists_the_old_token(self):
+        login_resp = self.client.post(self.login_url, {"username": "cashier1", "password": "pw"})
+        first_refresh = login_resp.cookies[settings.REFRESH_TOKEN_COOKIE_NAME].value
+
+        refresh_resp = self.client.post(self.refresh_silent_url)
+        second_refresh = refresh_resp.cookies[settings.REFRESH_TOKEN_COOKIE_NAME].value
+        self.assertNotEqual(first_refresh, second_refresh)
+
+        # Replaying the OLD (pre-rotation) refresh cookie must now fail —
+        # proves BLACKLIST_AFTER_ROTATION is actually wired through this
+        # cookie-based path, not just the body-based one simplejwt ships with.
+        self.client.cookies[settings.REFRESH_TOKEN_COOKIE_NAME] = first_refresh
+        replay_resp = self.client.post(self.refresh_silent_url)
+        self.assertEqual(replay_resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_logout_clears_cookie_and_blacklists_refresh_token(self):
+        login_resp = self.client.post(self.login_url, {"username": "cashier1", "password": "pw"})
+        access = login_resp.data["access"]
+        refresh_value = login_resp.cookies[settings.REFRESH_TOKEN_COOKIE_NAME].value
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {access}")
+        logout_resp = self.client.post(self.logout_url)
+        self.assertEqual(logout_resp.status_code, status.HTTP_205_RESET_CONTENT)
+
+        deleted_cookie = logout_resp.cookies[settings.REFRESH_TOKEN_COOKIE_NAME]
+        self.assertEqual(deleted_cookie.value, "")  # cleared
+
+        # The blacklisted token must be rejected even if a client held onto
+        # the raw value after logout (e.g. an old tab that hadn't reloaded).
+        self.client.cookies[settings.REFRESH_TOKEN_COOKIE_NAME] = refresh_value
+        replay_resp = self.client.post(self.refresh_silent_url)
+        self.assertEqual(replay_resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_logout_succeeds_even_with_no_refresh_cookie(self):
+        """Lenient by design: the user's goal (end up logged out) is
+        achievable whether or not there's a valid refresh cookie to
+        blacklist — this must not block on that."""
+        login_resp = self.client.post(self.login_url, {"username": "cashier1", "password": "pw"})
+        access = login_resp.data["access"]
+        self.client.cookies.clear()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {access}")
+        resp = self.client.post(self.logout_url)
+        self.assertEqual(resp.status_code, status.HTTP_205_RESET_CONTENT)
+
+
+class PosAdminCookieIsolationTests(APITestCase):
+    """
+    A01 - pos-frontend and admin-frontend both talk to the same backend
+    host, so without distinct cookie names/paths, logging into one app
+    would silently authenticate the other too (the browser can't tell
+    which frontend page a cookie "belongs" to — only domain+path). That
+    would defeat the entire reason these are separate frontend builds: a
+    cashier session should have no path into the admin app, not just no
+    USEFUL path once there.
+    """
+
+    def setUp(self):
+        cache.clear()
+        self.user = User.objects.create_user(username="cashier1", password="pw")
+
+    def test_pos_login_cookie_is_not_sent_to_admin_refresh_silent(self):
+        self.client.post(reverse("pos_token_obtain_pair"), {"username": "cashier1", "password": "pw"})
+        # The client now holds a pos_refresh_token cookie. Hitting the
+        # ADMIN app's silent-restore endpoint must NOT succeed from it.
+        resp = self.client.post(reverse("admin_refresh_silent"))
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_admin_login_cookie_is_not_sent_to_pos_refresh_silent(self):
+        self.client.post(reverse("admin_token_obtain_pair"), {"username": "cashier1", "password": "pw"})
+        resp = self.client.post(reverse("pos_refresh_silent"))
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_pos_and_admin_cookies_use_different_names(self):
+        pos_resp = self.client.post(reverse("pos_token_obtain_pair"), {"username": "cashier1", "password": "pw"})
+        admin_resp = self.client.post(reverse("admin_token_obtain_pair"), {"username": "cashier1", "password": "pw"})
+        self.assertIn("pos_refresh_token", pos_resp.cookies)
+        self.assertNotIn("admin_refresh_token", pos_resp.cookies)
+        self.assertIn("admin_refresh_token", admin_resp.cookies)
+        self.assertNotIn("pos_refresh_token", admin_resp.cookies)
+
+    def test_each_app_can_still_restore_its_own_session(self):
+        """The isolation fix shouldn't have broken the actual feature —
+        each app's own login must still successfully restore via its own
+        refresh-silent endpoint."""
+        self.client.post(reverse("pos_token_obtain_pair"), {"username": "cashier1", "password": "pw"})
+        pos_restore = self.client.post(reverse("pos_refresh_silent"))
+        self.assertEqual(pos_restore.status_code, status.HTTP_200_OK)
+
+        self.client.cookies.clear()
+        self.client.post(reverse("admin_token_obtain_pair"), {"username": "cashier1", "password": "pw"})
+        admin_restore = self.client.post(reverse("admin_refresh_silent"))
+        self.assertEqual(admin_restore.status_code, status.HTTP_200_OK)

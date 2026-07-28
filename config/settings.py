@@ -112,6 +112,13 @@ SIMPLE_JWT = {
     "ALGORITHM": "HS256",
 }
 
+# The refresh token is never returned in a JSON body or stored in JS-reachable
+# storage — it lives ONLY in this httpOnly cookie, so an XSS payload that can
+# read window/localStorage/document.cookie still can't exfiltrate it. Reuses
+# SESSION_COOKIE_SECURE's env-driven flag rather than a separate setting,
+# since "are we behind HTTPS" is one fact, not two.
+REFRESH_TOKEN_COOKIE_NAME = "refresh_token"  # nosec B105 - a cookie NAME, not a credential value
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework_simplejwt.authentication.JWTAuthentication",

@@ -27,6 +27,11 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         token = super().get_token(user)
         token["role"] = user.role
         token["branch_id"] = user.branch_id
+        # Lets the frontend redisplay "logged in as <username>" after a
+        # silent session restore (refresh-silent), where there's no login
+        # form input to read it from. Not sensitive — it's the user's own
+        # username, already known to them.
+        token["username"] = user.username
         return token
 
 
