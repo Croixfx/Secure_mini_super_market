@@ -18,9 +18,20 @@ the artifact a reviewer reads *before* the code.
 | Refresh token blacklisted explicitly on logout | `views.py: LogoutView` | A07 |
 | Login endpoint rate-limited (5/min) independent of any WAF | `settings_snippet.py: DEFAULT_THROTTLE_RATES` | A04 |
 | Minimum 10-char passwords, common-password + similarity checks | `settings_snippet.py: AUTH_PASSWORD_VALIDATORS` | A07 |
+| Refresh token in an httpOnly, Secure (env-driven), SameSite=Lax cookie — never in a JSON body or JS-reachable storage | `views.py: _RefreshCookieMixin`, `auth/*/refresh-silent/` | A02 (XSS token theft) |
+| MFA (TOTP) required for Owner/Manager once enrolled — self-service enrollment via QR code, second factor checked after password verification | `views.py: MFAEnrollView`, `MFAEnrollConfirmView`, `CustomTokenObtainPairView` | A07 |
+| Wrong/missing TOTP code counts toward the same lockout as a wrong password | `views.py: CustomTokenObtainPairView.post` | A07 (brute force) |
 
-**Not yet built, flagged deliberately:** MFA (TOTP) for Owner/Manager roles —
-`django-otp` is commented into `INSTALLED_APPS` as the next increment.
+**Known, deliberate gap:** MFA is required *once a Owner/Manager account has
+enrolled a confirmed device* — not from account creation. Accounts here are
+provisioner-created (no self-registration), so a brand-new Owner/Manager
+account has no TOTP device yet; making MFA mandatory before enrollment
+exists would mean that account could never log in even once to reach the
+enrollment endpoint. Practical consequence: an Owner/Manager who never
+bothers to enroll is not actually protected by a second factor. Worth a
+future increment — e.g. an admin-dashboard banner nudging unenrolled
+Owner/Manager accounts, or blocking access to sensitive actions (not login
+itself) until MFA is set up.
 
 ## Authorization
 
@@ -157,7 +168,10 @@ CSRF token would, without forcing a stateless JWT flow to carry one.
 
 ## Known gaps (tracked honestly, not hidden)
 
-- MFA not yet implemented for privileged roles.
+- MFA enrollment is opt-in per account (see the Authentication table above)
+  — an Owner/Manager who never enrolls stays password-only.
+- No MFA "disable" endpoint yet — an enrolled account's only way to remove
+  a device today is direct DB access. Small, deliberately deferred.
 - IP-based rate limiting here is application-level only; a reverse proxy /
   WAF layer (e.g. nginx `limit_req`, or Cloudflare) should back this up in
   production — defense in depth, not a single control.

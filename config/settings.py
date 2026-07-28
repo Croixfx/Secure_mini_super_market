@@ -36,11 +36,12 @@ INSTALLED_APPS = [
     "rest_framework_simplejwt",
     "rest_framework_simplejwt.token_blacklist",
     "corsheaders",
+    "django_otp",
+    "django_otp.plugins.otp_totp",
     "branches",
     "accounts",
     "inventory",
     "sales",
-    # "django_otp", "django_otp.plugins.otp_totp",  # add when you build MFA for Owner/Manager
 ]
 
 MIDDLEWARE = [
@@ -101,6 +102,11 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# ── A07: Identification & Authentication Failures — MFA (TOTP) ─────────
+# Cosmetic only (shows up as the account label in the user's authenticator
+# app) — has no effect on token verification.
+OTP_TOTP_ISSUER = "Mini Supermarket"
 
 # ── A07: Identification & Authentication Failures — JWT config ─────────
 SIMPLE_JWT = {

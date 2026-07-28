@@ -5,8 +5,12 @@ argon2-cffi==23.1.*
 django-cors-headers==4.4.*
 django-environ==0.11.*
 psycopg2-binary==2.9.*             # PostgreSQL driver, used by CI's Postgres service
-# django-otp==1.5.*                 # uncomment when MFA is added for Owner/Manager
+django-otp==1.7.*                  # MFA (TOTP) for Owner/Manager
+qrcode==8.2                         # renders the TOTP enrollment secret as a scannable QR image
+Pillow==12.3.*                      # qrcode's PNG rendering backend — no PNG output without it
 
 # --- security tooling (dev / CI, not runtime) ---
 bandit==1.7.*
 pip-audit==2.7.*
+pyotp==2.10.*                       # generates valid TOTP codes in tests only — production code
+                                     # only ever VERIFIES codes (django-otp), never generates them

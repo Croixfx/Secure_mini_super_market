@@ -8,6 +8,8 @@ from .views import (
     AdminTokenObtainPairView,
     CustomTokenObtainPairView,
     LogoutView,
+    MFAEnrollConfirmView,
+    MFAEnrollView,
     POSLogoutView,
     POSRefreshSilentView,
     POSTokenObtainPairView,
@@ -36,4 +38,12 @@ urlpatterns = [
     path("auth/admin/login/", AdminTokenObtainPairView.as_view(), name="admin_token_obtain_pair"),
     path("auth/admin/refresh-silent/", AdminRefreshSilentView.as_view(), name="admin_refresh_silent"),
     path("auth/admin/logout/", AdminLogoutView.as_view(), name="admin_logout"),
+
+    # MFA enrollment — Owner/Manager only (see MFA_REQUIRED_ROLES). One pair
+    # of endpoints regardless of which frontend the user is on: enrollment
+    # only needs the access token (Authorization header), which both apps'
+    # tokens satisfy identically — it doesn't touch the refresh cookie at
+    # all, so there's no pos/admin namespacing concern here.
+    path("auth/mfa/enroll/", MFAEnrollView.as_view(), name="mfa_enroll"),
+    path("auth/mfa/enroll/confirm/", MFAEnrollConfirmView.as_view(), name="mfa_enroll_confirm"),
 ] + router.urls

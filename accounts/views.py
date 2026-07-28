@@ -9,9 +9,14 @@ OWASP mapping:
 - A04 (Insecure Design): login endpoint is throttled at the view level in
   addition to any reverse-proxy rate limiting.
 """
+import base64
+import io
+
+import qrcode
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.utils import timezone
+from django_otp.plugins.otp_totp.models import TOTPDevice
 from rest_framework import status, viewsets, permissions as drf_permissions
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.response import Response
@@ -22,11 +27,21 @@ from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
-from .models import AuditLog, LoginAttempt
+from .models import AuditLog, LoginAttempt, Role
 from .permissions import IsOwner
 from .serializers import CustomTokenObtainPairSerializer, UserSerializer
 
 User = get_user_model()
+
+# MFA is required for these roles ONLY ONCE THEY'VE ENROLLED a confirmed
+# TOTP device — not from account creation. Accounts here are provisioned by
+# an Owner (no self-registration), so a brand-new Owner/Manager account has
+# no device yet; making MFA mandatory from the first login would mean that
+# account could never log in at all to reach the enrollment endpoint. See
+# README_SECURITY.md for the full reasoning, including the known gap this
+# creates (an account that never enrolls is never actually protected by a
+# second factor).
+MFA_REQUIRED_ROLES = (Role.OWNER, Role.MANAGER)
 
 # Default cookie identity for the generic/unscoped auth endpoints (used by
 # the test suite and any non-browser API consumer). The pos-frontend and
@@ -126,6 +141,33 @@ class CustomTokenObtainPairView(_RefreshCookieMixin, TokenObtainPairView):
             response = Response(status=status.HTTP_401_UNAUTHORIZED)
 
         if response.status_code == 200:
+            # Password was correct. Owner/Manager accounts with a CONFIRMED
+            # TOTP device need a valid code before real tokens are handed
+            # out — see MFA_REQUIRED_ROLES for why unconfirmed/no device
+            # doesn't block login.
+            if user and user.role in MFA_REQUIRED_ROLES:
+                device = TOTPDevice.objects.filter(user=user, confirmed=True).first()
+                if device:
+                    totp_code = request.data.get("totp_code", "")
+                    if not totp_code or not device.verify_token(totp_code):
+                        # Correct password, but the second factor is missing
+                        # or wrong. Treated the same as a failed login for
+                        # lockout/logging purposes — a wrong-code guess
+                        # against a correctly-password-authenticated account
+                        # is exactly the brute-force pattern lockout exists
+                        # to catch — but with a response body the frontend
+                        # can recognize as "prompt for a code," not "the
+                        # password was wrong." Missing and wrong codes get
+                        # the identical response so neither is distinguishable
+                        # from the other to a client.
+                        user.register_failed_login()
+                        self._log_attempt(username, user, ip, user_agent, success=False)
+                        AuditLog.record(actor=user, action="mfa_challenge_failed", ip_address=ip)
+                        return Response(
+                            {"detail": "A valid authenticator code is required.", "mfa_required": True},
+                            status=status.HTTP_401_UNAUTHORIZED,
+                        )
+
             if user:
                 user.register_successful_login()
             self._log_attempt(username, user, ip, user_agent, success=True)
@@ -157,6 +199,97 @@ class CustomTokenObtainPairView(_RefreshCookieMixin, TokenObtainPairView):
             user_agent=user_agent,
             success=success,
         )
+
+
+class _MFARoleGate:
+    """Shared "is this account even eligible for MFA" check for the
+    enrollment endpoints — Owner/Manager only, matching MFA_REQUIRED_ROLES."""
+
+    def _require_mfa_eligible_role(self, request):
+        if request.user.role not in MFA_REQUIRED_ROLES:
+            return Response(
+                {"detail": "MFA enrollment is only available to Owner/Manager accounts."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return None
+
+
+class MFAEnrollView(_MFARoleGate, APIView):
+    """
+    Step 1 of TOTP enrollment: creates a new, UNCONFIRMED TOTPDevice for the
+    authenticated user and returns the provisioning secret + QR code.
+
+    Deliberately does NOT count toward the login-time MFA requirement until
+    confirmed via MFAEnrollConfirmView — an unconfirmed device could be the
+    result of a mis-scanned QR code or a fumbled manual entry, and treating
+    it as "enrolled" without proof the user can actually generate valid
+    codes from it would risk locking them out at their very next login,
+    with no way back in.
+    """
+
+    permission_classes = [drf_permissions.IsAuthenticated]
+
+    def post(self, request):
+        role_error = self._require_mfa_eligible_role(request)
+        if role_error:
+            return role_error
+
+        user = request.user
+        # Safe to call more than once (e.g. the user abandoned a previous
+        # scan) — clears out any stale unconfirmed attempt first rather than
+        # accumulating orphaned devices.
+        TOTPDevice.objects.filter(user=user, confirmed=False).delete()
+        device = TOTPDevice.objects.create(user=user, name=f"{user.username}-totp", confirmed=False)
+
+        qr_image = qrcode.make(device.config_url)
+        buffer = io.BytesIO()
+        qr_image.save(buffer, format="PNG")
+        qr_code_base64 = base64.b64encode(buffer.getvalue()).decode("ascii")
+
+        AuditLog.record(actor=user, action="mfa_enroll_started", ip_address=_client_ip(request))
+
+        return Response(
+            {
+                # Base32, matching what's embedded in provisioning_uri — the
+                # conventional format for "type this in by hand" when a user
+                # can't scan the QR code.
+                "secret": base64.b32encode(device.bin_key).decode("ascii"),
+                "provisioning_uri": device.config_url,
+                "qr_code_base64": qr_code_base64,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class MFAEnrollConfirmView(_MFARoleGate, APIView):
+    """
+    Step 2 of TOTP enrollment: proves the user can actually generate a valid
+    code from the device before it counts toward the login requirement.
+    """
+
+    permission_classes = [drf_permissions.IsAuthenticated]
+
+    def post(self, request):
+        role_error = self._require_mfa_eligible_role(request)
+        if role_error:
+            return role_error
+
+        user = request.user
+        device = TOTPDevice.objects.filter(user=user, confirmed=False).order_by("-id").first()
+        if not device:
+            return Response(
+                {"detail": "No pending enrollment — call the enroll endpoint first."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        totp_code = request.data.get("totp_code", "")
+        if not totp_code or not device.verify_token(totp_code):
+            return Response({"detail": "Invalid code."}, status=status.HTTP_400_BAD_REQUEST)
+
+        device.confirmed = True
+        device.save(update_fields=["confirmed"])
+        AuditLog.record(actor=user, action="mfa_enroll_confirmed", ip_address=_client_ip(request))
+        return Response({"detail": "MFA enabled."}, status=status.HTTP_200_OK)
 
 
 class RefreshSilentView(_RefreshCookieMixin, APIView):

@@ -6,16 +6,28 @@ in models.py/views.py/permissions.py, not just to exercise the happy path.
 Each test class maps to one AAA pillar or one OWASP category — structure it
 this way in your README too, it reads very well to a reviewer.
 """
+import base64
+
+import pyotp
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.urls import reverse
+from django_otp.plugins.otp_totp.models import TOTPDevice
 from rest_framework import status
 from rest_framework.test import APITestCase
 
 from .models import LoginAttempt, Role
 
 User = get_user_model()
+
+
+def _valid_totp_code(device):
+    """The code a real authenticator app would show right now for this
+    device's actual secret — pyotp is a test-only dependency, production
+    code never generates codes, only verifies them (django-otp)."""
+    secret = base64.b32encode(device.bin_key).decode("ascii")
+    return pyotp.TOTP(secret).now()
 
 
 class AuthenticationLockoutTests(APITestCase):
@@ -285,3 +297,127 @@ class PosAdminCookieIsolationTests(APITestCase):
         self.client.post(reverse("admin_token_obtain_pair"), {"username": "cashier1", "password": "pw"})
         admin_restore = self.client.post(reverse("admin_refresh_silent"))
         self.assertEqual(admin_restore.status_code, status.HTTP_200_OK)
+
+
+class MFATests(APITestCase):
+    """
+    A07 - MFA (TOTP) for Owner/Manager. Cashiers stay password-only (till
+    turnover speed), and MFA is required only ONCE ENROLLED, not from
+    account creation — see MFA_REQUIRED_ROLES in views.py for why.
+    """
+
+    def setUp(self):
+        cache.clear()
+        self.manager = User.objects.create_user(username="manager1", password="pw", role=Role.MANAGER)
+        self.cashier = User.objects.create_user(username="cashier1", password="pw", role=Role.CASHIER)
+        self.login_url = reverse("token_obtain_pair")
+        self.enroll_url = reverse("mfa_enroll")
+        self.confirm_url = reverse("mfa_enroll_confirm")
+
+    def _authenticate_as(self, username, password="pw"):
+        resp = self.client.post(self.login_url, {"username": username, "password": password})
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {resp.data['access']}")
+
+    def _enroll_and_confirm_manager(self):
+        """Exercises the REAL enroll -> confirm HTTP flow — use this only
+        for tests actually about that flow. It consumes one TOTP code (the
+        confirm call itself verifies one), so a test that goes on to
+        generate "the current code" again within the same 30s step would
+        get the identical code and be correctly rejected as a replay by
+        django-otp's own reuse protection (min_t) — that's not a bug, it's
+        the thing being protected against. Login-gate tests use
+        _give_manager_a_confirmed_device instead, which doesn't consume
+        anything."""
+        self._authenticate_as("manager1")
+        self.client.post(self.enroll_url)
+        device = TOTPDevice.objects.get(user=self.manager, confirmed=False)
+        self.client.post(self.confirm_url, {"totp_code": _valid_totp_code(device)})
+        device.refresh_from_db()
+        self.client.credentials()  # clear the auth header before the caller logs in fresh
+        return device
+
+    def _give_manager_a_confirmed_device(self):
+        """A confirmed device with no codes consumed yet — for tests about
+        the LOGIN gate's behavior, not about the enrollment flow itself."""
+        return TOTPDevice.objects.create(user=self.manager, name="manager1-totp", confirmed=True)
+
+    # --- Enrollment ---
+
+    def test_cashier_cannot_enroll(self):
+        self._authenticate_as("cashier1")
+        resp = self.client.post(self.enroll_url)
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_manager_can_enroll_and_confirm(self):
+        self._authenticate_as("manager1")
+        enroll_resp = self.client.post(self.enroll_url)
+        self.assertEqual(enroll_resp.status_code, status.HTTP_201_CREATED)
+        self.assertIn("secret", enroll_resp.data)
+        self.assertIn("qr_code_base64", enroll_resp.data)
+        self.assertIn("provisioning_uri", enroll_resp.data)
+
+        device = TOTPDevice.objects.get(user=self.manager, confirmed=False)
+        confirm_resp = self.client.post(self.confirm_url, {"totp_code": _valid_totp_code(device)})
+        self.assertEqual(confirm_resp.status_code, status.HTTP_200_OK)
+
+        device.refresh_from_db()
+        self.assertTrue(device.confirmed)
+
+    def test_confirm_with_wrong_code_fails_and_device_stays_unconfirmed(self):
+        self._authenticate_as("manager1")
+        self.client.post(self.enroll_url)
+        resp = self.client.post(self.confirm_url, {"totp_code": "000000"})
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        device = TOTPDevice.objects.get(user=self.manager)
+        self.assertFalse(device.confirmed)
+
+    # --- Login gate ---
+
+    def test_manager_without_enrolled_mfa_logs_in_password_only(self):
+        """The documented bootstrapping decision: MFA can't be mandatory
+        before enrollment exists, or a fresh account could never log in
+        even once to reach the enrollment endpoint."""
+        resp = self.client.post(self.login_url, {"username": "manager1", "password": "pw"})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertIn("access", resp.data)
+
+    def test_manager_login_without_totp_code_is_rejected_once_enrolled(self):
+        self._give_manager_a_confirmed_device()
+        resp = self.client.post(self.login_url, {"username": "manager1", "password": "pw"})
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertTrue(resp.data.get("mfa_required"))
+        self.assertNotIn("access", resp.data)
+
+    def test_manager_login_with_wrong_totp_code_is_rejected(self):
+        self._give_manager_a_confirmed_device()
+        resp = self.client.post(
+            self.login_url, {"username": "manager1", "password": "pw", "totp_code": "000000"}
+        )
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertTrue(resp.data.get("mfa_required"))
+
+    def test_manager_login_with_valid_totp_code_succeeds(self):
+        device = self._give_manager_a_confirmed_device()
+        resp = self.client.post(
+            self.login_url,
+            {"username": "manager1", "password": "pw", "totp_code": _valid_totp_code(device)},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertIn("access", resp.data)
+
+    def test_failed_totp_attempts_count_toward_lockout(self):
+        """A wrong-code guess against a correctly-password-authenticated
+        account is exactly the brute-force pattern lockout exists to catch."""
+        self._give_manager_a_confirmed_device()
+        cache.clear()
+        for _ in range(5):
+            self.client.post(
+                self.login_url, {"username": "manager1", "password": "pw", "totp_code": "000000"}
+            )
+        self.manager.refresh_from_db()
+        self.assertTrue(self.manager.is_locked())
+
+    def test_cashier_login_unaffected_by_mfa(self):
+        resp = self.client.post(self.login_url, {"username": "cashier1", "password": "pw"})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertIn("access", resp.data)
