@@ -104,6 +104,57 @@ Real hardcoded-password findings in application code (`models.py`,
 `views.py`, `serializers.py`, etc.) are still in scope and would still be
 reported — only the three excluded path patterns above are skipped.
 
+## Cross-Site Request Forgery (CSRF)
+
+**Why the JWT-in-header API calls (POS/admin product, sales, stock, and
+user-management endpoints) are not CSRF-vulnerable:** CSRF works by having
+a victim's browser send an authenticated request the victim didn't intend —
+which requires the browser to attach the victim's credentials
+*automatically*. A cross-site page can trigger a request to this API, but
+it cannot make the victim's browser attach an `Authorization: Bearer
+<token>` header, because that header is set by our own frontend JS reading
+an in-memory value, not something the browser attaches on its own the way
+it does cookies. A forged request from another site arrives with no
+credential at all and gets `401`.
+
+**Why the new httpOnly refresh cookie (added for the session-restore flow)
+doesn't reintroduce that gap:** the cookie *is* something the browser
+attaches automatically, so the reasoning has to be made explicitly rather
+than inherited for free:
+
+1. The cookie is `SameSite=Lax`. Browsers exclude `Lax` cookies from
+   cross-site POST/fetch/XHR requests — exactly the request shape a CSRF
+   attack against a JSON API needs. They're only sent on cross-site
+   top-level `GET` navigations (e.g. following a link).
+2. Because of (1), the CSRF argument for a `Lax` cookie only fully holds if
+   **no state-changing action in this API is reachable via GET** — a GET
+   is the one cross-site request shape the cookie still rides along with.
+   This was verified directly, not assumed:
+   - Every custom endpoint that changes state — `auth/login/`,
+     `auth/pos/login/`, `auth/admin/login/`, `auth/refresh-silent/` (and
+     its `pos`/`admin` variants), `auth/logout/` (and its `pos`/`admin`
+     variants), `auth/refresh/`, `sales/checkout/`,
+     `inventory/stock/record_wastage/`, and
+     `inventory/stock/stocktake_adjustment/` — was hit with `GET` and
+     confirmed to return `405 Method Not Allowed`, never processed.
+   - Every `ModelViewSet` (`users`, `categories`, `products`, `stock`)
+     routes GET to `list`/`retrieve` only — DRF's router maps HTTP verbs to
+     actions structurally (GET → read, POST/PUT/PATCH/DELETE → write),
+     so there's no code path where a GET request reaches `create`,
+     `update`, or `destroy`. Confirmed empirically too: object counts for
+     products and users were captured before and after issuing GETs to
+     their collection endpoints, and were unchanged.
+3. Even in a hypothetical where (1) failed (e.g. a very old browser with no
+   `SameSite` support), `CORS_ALLOWED_ORIGINS`'s strict allowlist means a
+   forged cross-origin request can't read the response — only the
+   browser-level "was a cookie attached" question is in play, not "can the
+   attacker see the result."
+
+Net: the refresh cookie is exempted from Django's CSRF token middleware
+deliberately, not by omission — `SameSite=Lax` plus "no mutation is ever
+GET-reachable" plus the CORS allowlist together cover the same ground a
+CSRF token would, without forcing a stateless JWT flow to carry one.
+
 ## Known gaps (tracked honestly, not hidden)
 
 - MFA not yet implemented for privileged roles.
