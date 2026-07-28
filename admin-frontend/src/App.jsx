@@ -1,7 +1,7 @@
-import InventoryPage from "./pages/inventory/InventoryPage";
+import AdminApp from "./AdminApp";
 
 function App() {
-  return <InventoryPage />;
+  return <AdminApp />;
 }
 
 export default App;

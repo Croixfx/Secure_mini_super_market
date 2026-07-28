@@ -59,6 +59,24 @@ class ProductViewSet(viewsets.ModelViewSet):
         context["request"] = self.request
         return context
 
+    def perform_create(self, serializer):
+        # A brand-new product has no stock anywhere yet, but without a Stock
+        # row at all it can never appear in any stock-driven view (the admin
+        # dashboard's grid, the POS catalog's quantity column, etc.) — there'd
+        # be nothing to iterate over. Creating one at quantity=0 for the
+        # creating manager's own branch fixes that without going through
+        # services.py: a zero-quantity row with zero ledger movements is
+        # already internally consistent (0 == sum of nothing), so this isn't
+        # the "bypassed the ledger" bug class that rule exists to prevent —
+        # there's no actual stock change being recorded, just a placeholder
+        # row for a branch to stock later via receiving/wastage/stocktake.
+        # An Owner has no single branch, so no row is created in that case;
+        # someone at a branch adds real stock the normal way once needed.
+        product = serializer.save()
+        user = self.request.user
+        if user.role != Role.OWNER and user.branch_id:
+            Stock.objects.get_or_create(product=product, branch_id=user.branch_id, defaults={"quantity": 0})
+
 
 class StockViewSet(viewsets.ModelViewSet):
     """
