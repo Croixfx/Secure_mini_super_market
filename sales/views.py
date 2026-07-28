@@ -18,6 +18,7 @@ from decimal import Decimal
 from django.db import IntegrityError, transaction
 from rest_framework import permissions as drf_permissions, status, viewsets
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from accounts.models import Role
@@ -28,7 +29,23 @@ from .serializers import CheckoutSerializer, SaleSerializer
 
 
 class CheckoutView(APIView):
+    """
+    A04 (Insecure Design): throttled at 30/min per cashier — see
+    DEFAULT_THROTTLE_RATES["checkout"] in settings.py. This is a much
+    higher ceiling than the 5/min login throttle deliberately: login is
+    meant to be tight (5 wrong-password guesses is already suspicious),
+    but checkout is a till in active, legitimate use — a fast cashier
+    scanning a short cart and hitting pay can genuinely complete a sale
+    every few seconds during a rush. 30/min (one every 2s) comfortably
+    covers that real usage pattern while still bounding a compromised
+    token or buggy client from hammering the stock ledger unboundedly.
+    ScopedRateThrottle keys by authenticated user, so one busy till
+    can't exhaust another cashier's allowance.
+    """
+
     permission_classes = [drf_permissions.IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "checkout"
 
     @transaction.atomic
     def post(self, request):

@@ -127,3 +127,58 @@ class CheckoutTests(APITestCase):
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {resp.data['access']}")
         result = self._checkout([{"product_id": self.coke.id, "quantity": 1}])
         self.assertEqual(result.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class CheckoutThrottleTests(APITestCase):
+    """A04 - proves the 30/min checkout throttle actually triggers, and
+    that it's scoped per-user rather than globally (one busy cashier can't
+    lock another one out of their own till)."""
+
+    def setUp(self):
+        cache.clear()
+        self.branch = Branch.objects.create(name="Kimironko")
+        self.cashier = User.objects.create_user(
+            username="cashier1", password="pw", role=Role.CASHIER, branch=self.branch
+        )
+        self.other_cashier = User.objects.create_user(
+            username="cashier2", password="pw", role=Role.CASHIER, branch=self.branch
+        )
+        category = Category.objects.create(name="Beverages")
+        self.coke = Product.objects.create(
+            name="Coca-Cola 500ml", sku="COKE500", category=category, unit_price="1.50", cost_price="0.90"
+        )
+        services.receive_stock(product=self.coke, branch=self.branch, quantity=1000, performed_by=self.cashier)
+
+    def _login_as(self, username):
+        resp = self.client.post(reverse("token_obtain_pair"), {"username": username, "password": "pw"})
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {resp.data['access']}")
+
+    def _checkout(self):
+        return self.client.post(
+            reverse("checkout"),
+            {
+                "idempotency_key": str(uuid.uuid4()),
+                "payment_method": "CASH",
+                "items": [{"product_id": self.coke.id, "quantity": 1}],
+            },
+            format="json",
+        )
+
+    def test_31st_checkout_in_a_minute_is_throttled(self):
+        self._login_as("cashier1")
+        statuses = [self._checkout().status_code for _ in range(30)]
+        self.assertTrue(all(code == status.HTTP_201_CREATED for code in statuses))
+
+        blocked = self._checkout()
+        self.assertEqual(blocked.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_throttle_is_scoped_per_user_not_global(self):
+        """cashier1 maxing out their allowance must not affect cashier2 —
+        each till gets its own 30/min budget."""
+        self._login_as("cashier1")
+        for _ in range(30):
+            self._checkout()
+        self.assertEqual(self._checkout().status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+        self._login_as("cashier2")
+        self.assertEqual(self._checkout().status_code, status.HTTP_201_CREATED)

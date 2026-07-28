@@ -33,6 +33,41 @@ future increment — e.g. an admin-dashboard banner nudging unenrolled
 Owner/Manager accounts, or blocking access to sensitive actions (not login
 itself) until MFA is set up.
 
+## Rate limiting (checkout)
+
+| Control | Where | OWASP category |
+|---|---|---|
+| Checkout endpoint rate-limited (30/min, per authenticated user) | `sales/views.py: CheckoutView` (`settings.py: DEFAULT_THROTTLE_RATES["checkout"]`) | A04 |
+
+**Why 30/min, not the 5/min used for login:** login throttling is
+deliberately tight — a handful of wrong-password attempts is already
+suspicious, so slowing an attacker down matters more than accommodating
+legitimate speed. Checkout is the opposite case: it's a till in active,
+legitimate use, and a fast cashier scanning a short cart and hitting pay
+can genuinely complete a sale every few seconds during a rush. 30/min is
+one sale every 2 seconds sustained — well above realistic human checkout
+speed — so it bounds a compromised token or a buggy/looping client without
+being reachable by normal till use. `ScopedRateThrottle` keys the count by
+authenticated user (not IP), so one busy till maxing out its own budget
+has no effect on any other cashier's till — verified directly (see below).
+
+**Verified, not assumed:**
+- Automated: `sales/tests.py: CheckoutThrottleTests` proves the 31st
+  checkout within a minute for one user gets `429`, and that a second
+  user's till is completely unaffected by the first hitting its limit.
+- Manual, against the real running dev server (not the test DB): 5 real
+  checkouts via the POS terminal UI at human/fast-tap speed all succeeded
+  (`201`, confirmed in the server log), never throttled. A scripted burst
+  of 35 checkouts fired back-to-back (0.52s total, far faster than any
+  real till) succeeded exactly 30 times, then correctly returned `429`
+  with `Retry-After: 60` from request 31 onward. Triggering that same
+  burst from the actual POS UI showed the cashier a clear inline message
+  ("Request was throttled. Expected available in N seconds.") rather than
+  a crash — the cart and idempotency key are preserved, so retrying after
+  the cooldown completes the original sale, not a duplicate. Once the
+  60-second window rolled forward, the next attempt succeeded normally
+  with no manual intervention needed.
+
 ## Authorization
 
 | Control | Where | OWASP category |
