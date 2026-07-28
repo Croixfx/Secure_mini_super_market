@@ -51,6 +51,15 @@ jobs:
           DATABASE_URL: postgres://ci_user:ci_password@localhost:5432/ci_test_db
           SECRET_KEY: ci-only-placeholder-key-not-used-anywhere-real
           DEBUG: "False"
+          # DEBUG=False here is deliberate — it exercises the same settings
+          # branch a real production deploy would use. SECURE_SSL_REDIRECT
+          # is the one exception that has to be forced back off: it defaults
+          # to True whenever DEBUG=False (see config/settings.py), and
+          # Django's test client talks to the app over plain HTTP, so
+          # leaving it on 301-redirects every test request instead of
+          # reaching the view. This is a visible, test-environment-only
+          # override, not a statement about what production should run.
+          SECURE_SSL_REDIRECT: "False"
         run: |
           python manage.py test -v 2
 

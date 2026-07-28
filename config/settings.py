@@ -142,12 +142,35 @@ REST_FRAMEWORK = {
 }
 
 # ── A05: Security Misconfiguration ──────────────────────────────────────
-# HTTPS-only settings are opt-in via env so local dev over http:// still works.
-SECURE_HSTS_SECONDS = env.int("SECURE_HSTS_SECONDS", default=0)
-SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG
-SECURE_SSL_REDIRECT = env.bool("SECURE_SSL_REDIRECT", default=False)
-SESSION_COOKIE_SECURE = env.bool("SESSION_COOKIE_SECURE", default=False)
-CSRF_COOKIE_SECURE = env.bool("CSRF_COOKIE_SECURE", default=False)
+# Defaults branch on DEBUG the same way ALLOWED_HOSTS does above: secure
+# unless you're in local dev (DEBUG=True, no TLS available). This means a
+# `DEBUG=False` deploy is safe by default even if nobody sets these env
+# vars explicitly — they're still individually overridable via env for a
+# staging setup that deliberately terminates TLS elsewhere, but the
+# fallback is no longer "silently off in production."
+#
+# SECURE_SSL_REDIRECT is the one exception requiring a visible override:
+# it 301-redirects any request Django sees as non-HTTPS, and CI runs with
+# DEBUG=False (to exercise prod-shaped settings) while talking to the app
+# over plain HTTP via Django's test client — confirmed by running the
+# suite with it forced on, which turned every 200/401 into a 301. CI's
+# workflow file sets SECURE_SSL_REDIRECT=False explicitly, with a comment,
+# rather than this file silently exempting it.
+#
+# If this is ever deployed behind a reverse proxy that terminates TLS
+# (nginx, a load balancer, etc.), Django's request.is_secure() won't see
+# the original connection as HTTPS unless SECURE_PROXY_SSL_HEADER is also
+# configured to trust X-Forwarded-Proto from that specific proxy — without
+# it, turning this on would cause a redirect loop. Deliberately not
+# configured here (blindly trusting X-Forwarded-Proto without knowing the
+# real proxy topology is its own spoofing risk — same class of issue as
+# the X-Forwarded-For caveat below); it's the deployer's responsibility to
+# set it correctly for their actual topology, same as ALLOWED_HOSTS.
+SECURE_HSTS_SECONDS = env.int("SECURE_HSTS_SECONDS", default=0 if DEBUG else 31536000)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env.bool("SECURE_HSTS_INCLUDE_SUBDOMAINS", default=not DEBUG)
+SECURE_SSL_REDIRECT = env.bool("SECURE_SSL_REDIRECT", default=not DEBUG)
+SESSION_COOKIE_SECURE = env.bool("SESSION_COOKIE_SECURE", default=not DEBUG)
+CSRF_COOKIE_SECURE = env.bool("CSRF_COOKIE_SECURE", default=not DEBUG)
 X_FRAME_OPTIONS = "DENY"
 SECURE_CONTENT_TYPE_NOSNIFF = True
 

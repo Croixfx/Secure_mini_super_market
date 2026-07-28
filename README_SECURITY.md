@@ -68,6 +68,69 @@ has no effect on any other cashier's till — verified directly (see below).
   60-second window rolled forward, the next attempt succeeded normally
   with no manual intervention needed.
 
+## HTTPS / Transport Security
+
+| Control | Where | OWASP category |
+|---|---|---|
+| HTTPS redirect, secure session/CSRF cookies, HSTS — all default ON once `DEBUG=False`, default OFF only for local dev | `settings.py: SECURE_SSL_REDIRECT`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`, `SECURE_HSTS_SECONDS`, `SECURE_HSTS_INCLUDE_SUBDOMAINS` | A05 |
+
+**The gap found and fixed:** these five settings were already read from the
+environment (`env.bool(...)`, `env.int(...)`), so they were never literally
+hardcoded — but four of the five fell back to **off regardless of `DEBUG`**
+when their env var wasn't set, unlike `ALLOWED_HOSTS` just above them in the
+same file, which already does `default=["*"] if DEBUG else []`. Practical
+consequence: deploy with `DEBUG=False` and forget to *also* set these four
+env vars, and the app would silently run in production with no HTTPS
+redirect, non-secure cookies, and no HSTS — exactly the kind of gap that
+doesn't show up until it matters.
+
+**Fix:** each now defaults to `not DEBUG` — secure unless you're in local
+dev, same branching pattern `ALLOWED_HOSTS` already used. Still individually
+overridable via env for a deployment that deliberately needs something
+different (e.g. TLS terminated elsewhere).
+
+**Verified, not assumed** — resolved values with no env vars set at all,
+before vs. after:
+
+| Setting | Local dev (`DEBUG` unset → `True`) | Prod-shaped (`DEBUG=False`), before fix | Prod-shaped (`DEBUG=False`), after fix |
+|---|---|---|---|
+| `SECURE_SSL_REDIRECT` | `False` | `False` | `True` |
+| `SESSION_COOKIE_SECURE` | `False` | `False` | `True` |
+| `CSRF_COOKIE_SECURE` | `False` | `False` | `True` |
+| `SECURE_HSTS_SECONDS` | `0` | `0` | `31536000` (1 year) |
+| `SECURE_HSTS_INCLUDE_SUBDOMAINS` | `False` | `False` | `True` |
+
+Also cross-checked against Django's own `manage.py check --deploy`
+checklist: with `DEBUG=False` and no other env vars set, this dropped from
+6 warnings (including `security.W004` HSTS, `W008` SSL redirect, `W012`
+session cookie, `W016` CSRF cookie — the exact four this fix addresses) to
+3 (the two that are legitimately still the deployer's job — a real
+`SECRET_KEY` and a real `ALLOWED_HOSTS` — plus an optional `W021` HSTS
+preload suggestion, not requested here).
+
+**The one setting that needed a visible exception, not a silent one:**
+`SECURE_SSL_REDIRECT` 301-redirects any request Django sees as non-HTTPS.
+CI intentionally runs with `DEBUG=False` (to exercise the same settings
+branch production uses), but Django's test client talks to the app over
+plain HTTP — forcing the redirect on turned every expected `200`/`401`
+into a `301` (confirmed by actually running the suite that way before
+deciding on the fix, not assumed). Rather than carve out an exception
+inside `settings.py` that would silently apply everywhere `DEBUG=False` is
+used, `.github/workflows/ci.yml` now sets `SECURE_SSL_REDIRECT: "False"`
+explicitly, with a comment explaining why — the override is visible in the
+one place it's needed, not baked into the default.
+
+**Known deployment-topology caveat:** if this app ever sits behind a
+reverse proxy that terminates TLS (nginx, a load balancer, etc.), Django's
+`request.is_secure()` won't see the original connection as HTTPS unless
+`SECURE_PROXY_SSL_HEADER` is also configured to trust `X-Forwarded-Proto`
+from that specific proxy — without it, `SECURE_SSL_REDIRECT=True` would
+cause a redirect loop. Deliberately not configured here: trusting that
+header blindly without knowing the real proxy topology is its own spoofing
+risk, the same class of issue as the `X-Forwarded-For` caveat below.
+Setting it correctly is the deployer's responsibility, same as
+`ALLOWED_HOSTS`.
+
 ## Authorization
 
 | Control | Where | OWASP category |
