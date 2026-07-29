@@ -21,12 +21,14 @@ async function request(path, { method = "GET", body, auth = true } = {}) {
 
   if (!resp.ok) {
     let detail = `Request failed (${resp.status})`;
+    let data = {};
     try {
-      const data = await resp.json();
+      data = await resp.json();
       detail = data.detail || JSON.stringify(data);
     } catch { /* not JSON */ }
     const err = new Error(detail);
     err.status = resp.status;
+    err.data = data; // lets callers check err.data.mfa_required
     throw err;
   }
   if (resp.status === 204) return null;
@@ -40,6 +42,16 @@ export const posApi = {
   // path prefix gives each app its own cookie namespace instead.
   login: (username, password) =>
     request("/auth/pos/login/", { method: "POST", body: { username, password }, auth: false }),
+  // Step 2 for an Owner/Manager with a confirmed TOTP device (a cashier
+  // never hits this — see MFA_REQUIRED_ROLES in accounts/views.py). Same
+  // endpoint, same credentials, plus the code. Field name is "totp_code",
+  // confirmed against CustomTokenObtainPairView.post, not guessed.
+  loginWithMfa: (username, password, totpCode) =>
+    request("/auth/pos/login/", {
+      method: "POST",
+      body: { username, password, totp_code: totpCode },
+      auth: false,
+    }),
   // Called once on app load to restore a session from the httpOnly refresh
   // cookie alone — no access token exists yet at this point, hence auth:
   // false. A rejection here (no cookie, or an expired/blacklisted one) is

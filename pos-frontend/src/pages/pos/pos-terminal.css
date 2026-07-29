@@ -104,6 +104,21 @@
 }
 .pos-button-primary:hover { background: var(--market-green-dark); }
 .pos-button-primary:active { transform: scale(0.98); }
+.pos-button-secondary {
+  width: 100%;
+  margin-top: 8px;
+  padding: 12px;
+  background: transparent;
+  color: var(--market-green-dark);
+  border: 1px solid var(--paper-line);
+  border-radius: 6px;
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.pos-button-secondary:hover { background: var(--paper); }
 .pos-error {
   color: var(--error-red);
   font-size: 0.85rem;

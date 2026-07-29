@@ -8,6 +8,8 @@ export default function POSTerminal() {
   const [restoring, setRestoring] = useState(true);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [mfaRequired, setMfaRequired] = useState(false);
+  const [mfaCode, setMfaCode] = useState("");
   const [loginError, setLoginError] = useState("");
 
   const [query, setQuery] = useState("");
@@ -48,6 +50,27 @@ export default function POSTerminal() {
     setLoginError("");
     try {
       const { access } = await posApi.login(username, password);
+      applyAccessToken(access);
+      await loadProducts();
+    } catch (err) {
+      // Owner/Manager accounts with a confirmed TOTP device get a 401 here
+      // with mfa_required: true instead of tokens — a cashier login never
+      // hits this branch. Enrollment itself stays admin-app only; this
+      // just lets an already-enrolled account complete a till login.
+      if (err.data?.mfa_required) {
+        setMfaRequired(true);
+        setLoginError("");
+      } else {
+        setLoginError(err.message);
+      }
+    }
+  }
+
+  async function handleMfaSubmit(e) {
+    e.preventDefault();
+    setLoginError("");
+    try {
+      const { access } = await posApi.loginWithMfa(username, password, mfaCode);
       applyAccessToken(access);
       await loadProducts();
     } catch (err) {
@@ -129,6 +152,8 @@ export default function POSTerminal() {
     setRole(null);
     setCart([]);
     setProducts([]);
+    setMfaRequired(false);
+    setMfaCode("");
   }
 
   if (restoring) {
@@ -138,23 +163,53 @@ export default function POSTerminal() {
   if (!role) {
     return (
       <div className="pos-root">
-        <form className="pos-login" onSubmit={handleLogin}>
-          <p className="eyebrow">Till sign-in</p>
-          <h1>Start your shift</h1>
-          <div className="pos-field">
-            <label htmlFor="username">Username</label>
-            <input id="username" value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
-          </div>
-          <div className="pos-field">
-            <label htmlFor="password">Password</label>
-            <input
-              id="password" type="password" value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </div>
-          <button className="pos-button-primary" type="submit">Sign in</button>
-          {loginError && <p className="pos-error">{loginError}</p>}
-        </form>
+        {!mfaRequired ? (
+          <form className="pos-login" onSubmit={handleLogin}>
+            <p className="eyebrow">Till sign-in</p>
+            <h1>Start your shift</h1>
+            <div className="pos-field">
+              <label htmlFor="username">Username</label>
+              <input id="username" value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
+            </div>
+            <div className="pos-field">
+              <label htmlFor="password">Password</label>
+              <input
+                id="password" type="password" value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+            <button className="pos-button-primary" type="submit">Sign in</button>
+            {loginError && <p className="pos-error">{loginError}</p>}
+          </form>
+        ) : (
+          <form className="pos-login" onSubmit={handleMfaSubmit}>
+            <p className="eyebrow">Two-factor required</p>
+            <h1>Enter your code</h1>
+            <div className="pos-field">
+              <label htmlFor="mfa-code">6-digit code</label>
+              <input
+                id="mfa-code"
+                value={mfaCode}
+                onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                placeholder="123456"
+                inputMode="numeric"
+                autoFocus
+                style={{ fontSize: "1.2rem", letterSpacing: "0.3em", textAlign: "center" }}
+              />
+            </div>
+            <button className="pos-button-primary" type="submit" disabled={mfaCode.length !== 6}>
+              Verify and sign in
+            </button>
+            <button
+              type="button"
+              className="pos-button-secondary"
+              onClick={() => { setMfaRequired(false); setMfaCode(""); setLoginError(""); }}
+            >
+              Back
+            </button>
+            {loginError && <p className="pos-error">{loginError}</p>}
+          </form>
+        )}
       </div>
     );
   }
