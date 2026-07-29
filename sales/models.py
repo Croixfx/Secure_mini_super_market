@@ -72,5 +72,59 @@ class SaleItem(models.Model):
     unit_price_at_sale = models.DecimalField(max_digits=10, decimal_places=2)
     line_total = models.DecimalField(max_digits=12, decimal_places=2)
 
+    # Cached running total, same pattern as PurchaseOrderItem.quantity_received
+    # — the real source of truth is the sum of this line's RefundItem rows.
+    quantity_refunded = models.PositiveIntegerField(default=0)
+
     def __str__(self):
         return f"{self.quantity}x {self.product.sku} @ {self.unit_price_at_sale}"
+
+
+class Refund(models.Model):
+    """
+    One refund transaction against an original Sale. A single Sale can have
+    MULTIPLE Refund rows over time (a customer returns 2 of 5 items today,
+    the other 3 next week) — this mirrors the PurchaseOrder
+    partial-receiving pattern deliberately, since it's the same shape of
+    problem: partial fulfillment against an original commitment, tracked
+    as discrete events rather than one mutable running total.
+    """
+
+    sale = models.ForeignKey(Sale, on_delete=models.PROTECT, related_name="refunds")
+    processed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="refunds_processed")
+
+    # Required, not optional — same reasoning as StockMovement.reason for
+    # wastage: an unexplained refund is exactly the kind of thing an
+    # internal-fraud review needs to be able to distinguish from a
+    # legitimate one after the fact.
+    reason = models.CharField(max_length=255)
+
+    # Computed server-side from the refunded line items at the ORIGINAL
+    # sale price — never accepted from the client, same discipline as
+    # Sale.total_amount at checkout.
+    total_refunded_amount = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal("0"))])
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["sale", "created_at"])]
+
+    def __str__(self):
+        return f"Refund #{self.id} against Sale #{self.sale_id} — {self.total_refunded_amount}"
+
+
+class RefundItem(models.Model):
+    refund = models.ForeignKey(Refund, on_delete=models.CASCADE, related_name="items")
+    sale_item = models.ForeignKey(SaleItem, on_delete=models.PROTECT, related_name="refund_items")
+    quantity = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+
+    # The explicit choice every real supermarket makes at the till: does
+    # this unit go back on the shelf, or is it damaged/expired/unsellable?
+    # Never inferred — always a deliberate decision by whoever processes
+    # the refund, since guessing wrong either double-counts stock that
+    # doesn't exist or silently discards stock that's actually fine.
+    restocked = models.BooleanField()
+
+    def __str__(self):
+        return f"{self.quantity}x {self.sale_item.product.sku} (restocked={self.restocked})"

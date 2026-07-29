@@ -91,4 +91,6 @@ export const adminApi = {
   listStaff: () => request("/users/"),
   createStaff: (payload) => request("/users/", { method: "POST", body: payload }),
   updateStaff: (id, payload) => request(`/users/${id}/`, { method: "PATCH", body: payload }),
+
+  refundSale: (saleId, payload) => request(`/sales/history/${saleId}/refund/`, { method: "POST", body: payload }),
 };

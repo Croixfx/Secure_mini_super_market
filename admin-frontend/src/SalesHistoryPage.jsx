@@ -1,14 +1,23 @@
 // frontend-admin/SalesHistoryPage.jsx
 import { useEffect, useState } from "react";
 import { adminApi } from "./adminClient";
+import RefundModal from "./RefundModal";
+
+const STATUS_LABEL = {
+  COMPLETED: null, // nothing to show — the normal, un-refunded state
+  PARTIALLY_REFUNDED: "Partially refunded",
+  REFUNDED: "Refunded",
+};
 
 export default function SalesHistoryPage() {
   const [sales, setSales] = useState([]);
   const [error, setError] = useState("");
+  const [refundingSale, setRefundingSale] = useState(null);
 
-  useEffect(() => {
+  function load() {
     adminApi.listSales().then(setSales).catch((err) => setError(err.message));
-  }, []);
+  }
+  useEffect(load, []);
 
   return (
     <div>
@@ -35,14 +44,36 @@ export default function SalesHistoryPage() {
                     {item.quantity}× {item.product_name}
                   </span>
                 ))}
+                {STATUS_LABEL[sale.status] && (
+                  <span className="admin-chip" data-level="low" style={{ position: "static" }}>
+                    {STATUS_LABEL[sale.status]}
+                  </span>
+                )}
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.9rem" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.9rem" }}>
                 <span style={{ color: "#6B7280" }}>{sale.payment_method}</span>
                 <strong>{Number(sale.total_amount).toFixed(2)}</strong>
               </div>
+              {sale.status !== "REFUNDED" && (
+                <button
+                  className="admin-button-secondary"
+                  style={{ width: "100%", marginTop: 10 }}
+                  onClick={() => setRefundingSale(sale)}
+                >
+                  Refund
+                </button>
+              )}
             </div>
           ))}
         </div>
+      )}
+
+      {refundingSale && (
+        <RefundModal
+          sale={refundingSale}
+          onClose={() => setRefundingSale(null)}
+          onRefunded={() => { setRefundingSale(null); load(); }}
+        />
       )}
     </div>
   );

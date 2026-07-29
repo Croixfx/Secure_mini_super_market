@@ -47,7 +47,10 @@ class SaleItemOutputSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SaleItem
-        fields = ["id", "product", "product_name", "product_sku", "quantity", "unit_price_at_sale", "line_total"]
+        fields = [
+            "id", "product", "product_name", "product_sku", "quantity",
+            "unit_price_at_sale", "line_total", "quantity_refunded",
+        ]
 
 
 class SaleSerializer(serializers.ModelSerializer):

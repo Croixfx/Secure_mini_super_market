@@ -15,16 +15,21 @@ deliberately conservative:
 """
 from decimal import Decimal
 
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from rest_framework import permissions as drf_permissions, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from accounts.models import Role
+from accounts.permissions import IsBranchManagerOrOwner
 from inventory.services import InsufficientStockError, record_sale
 
+from . import refund_services
 from .models import Sale, SaleItem
+from .refund_serializers import RefundRequestSerializer, RefundSerializer
 from .serializers import CheckoutSerializer, SaleSerializer
 
 
@@ -134,3 +139,34 @@ class SaleViewSet(viewsets.ReadOnlyModelViewSet):
         if user.role == Role.OWNER:
             return qs
         return qs.filter(branch_id=user.branch_id)
+
+    @action(
+        detail=True, methods=["post"],
+        permission_classes=[drf_permissions.IsAuthenticated, IsBranchManagerOrOwner],
+    )
+    def refund(self, request, pk=None):
+        """
+        POST /api/sales/history/<id>/refund/
+        {"reason": "customer changed mind", "lines": [{"sale_item_id": 12, "quantity": 2, "restock": true}]}
+
+        Manager/Owner only — deliberately NOT reachable by the cashier who
+        made the original sale. A cashier processing their own refund with
+        no oversight is a classic internal-fraud vector (ring up a fake
+        return, pocket the cash) — this mirrors the same reasoning as
+        wastage/stocktake being locked to management roles.
+        """
+        sale = self.get_object()  # get_queryset() already branch-scopes this
+        serializer = RefundRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            refund_obj = refund_services.process_refund(
+                sale=sale,
+                lines=serializer.validated_data["lines"],
+                reason=serializer.validated_data["reason"],
+                performed_by=request.user,
+            )
+        except refund_services.RefundWindowExpiredError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except ValidationError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(RefundSerializer(refund_obj).data, status=status.HTTP_201_CREATED)
