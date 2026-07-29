@@ -5,8 +5,9 @@ import AdminLayout from "./AdminLayout";
 import DashboardHome from "./DashboardHome";
 import InventoryDashboardPage from "./InventoryDashboardPage";
 import SalesHistoryPage from "./SalesHistoryPage";
-import ComingSoonPage from "./ComingSoonPage";
 import MfaSettingsPage from "./MfaSettingsPage";
+import PurchaseOrdersPage from "./PurchaseOrdersPage";
+import SuppliersPage from "./SuppliersPage";
 import "./admin-design.css";
 
 export default function AdminApp() {
@@ -155,12 +156,8 @@ export default function AdminApp() {
       {page === "inventory" && <InventoryDashboardPage role={user.role} />}
       {page === "sales" && <SalesHistoryPage />}
       {page === "mfa_settings" && <MfaSettingsPage user={user} />}
-      {page === "purchase_orders" && (
-        <ComingSoonPage title="Purchase orders" description="Track orders to suppliers and receive stock against them." />
-      )}
-      {page === "suppliers" && (
-        <ComingSoonPage title="Suppliers" description="Manage the suppliers you order stock from." />
-      )}
+      {page === "purchase_orders" && <PurchaseOrdersPage />}
+      {page === "suppliers" && <SuppliersPage />}
     </AdminLayout>
   );
 }

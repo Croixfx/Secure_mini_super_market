@@ -71,4 +71,13 @@ export const adminApi = {
   listSales: () => request("/sales/history/"),
   listMovements: (productId) =>
     request(`/inventory/movements/${productId ? `?product=${productId}` : ""}`),
+
+  listSuppliers: () => request("/procurement/suppliers/"),
+  createSupplier: (payload) => request("/procurement/suppliers/", { method: "POST", body: payload }),
+
+  listPurchaseOrders: () => request("/procurement/purchase-orders/"),
+  createPurchaseOrder: (payload) => request("/procurement/purchase-orders/", { method: "POST", body: payload }),
+  sendPurchaseOrder: (id) => request(`/procurement/purchase-orders/${id}/send/`, { method: "POST" }),
+  receivePurchaseOrder: (id, receipts) =>
+    request(`/procurement/purchase-orders/${id}/receive/`, { method: "POST", body: { receipts } }),
 };

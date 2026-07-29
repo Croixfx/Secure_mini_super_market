@@ -5,13 +5,17 @@ const NAV_ITEMS = [
   { key: "dashboard", label: "Dashboard", icon: "⌂" },
   { key: "inventory", label: "Inventory", icon: "▤" },
   { key: "sales", label: "Sales history", icon: "🧾" },
-  { key: "purchase_orders", label: "Purchase orders", icon: "▣" },
-  { key: "suppliers", label: "Suppliers", icon: "🚚" },
+  // Backend already 403s a Cashier on these (IsBranchManagerOrOwner) —
+  // this just keeps the nav from offering a link that only leads to an
+  // error for that role.
+  { key: "purchase_orders", label: "Purchase orders", icon: "▣", managerOnly: true },
+  { key: "suppliers", label: "Suppliers", icon: "🚚", managerOnly: true },
   { key: "mfa_settings", label: "Security", icon: "🔒" },
 ];
 
 export default function AdminLayout({ page, onNavigate, user, onLogout, children }) {
   const initials = (user?.username || "?").slice(0, 2).toUpperCase();
+  const navItems = NAV_ITEMS.filter((item) => !item.managerOnly || user?.role !== "CASHIER");
 
   return (
     <div className="admin-root">
@@ -20,7 +24,7 @@ export default function AdminLayout({ page, onNavigate, user, onLogout, children
           <span>🛒</span> Mini Supermarket
         </div>
         <nav className="admin-nav">
-          {NAV_ITEMS.map((item) => (
+          {navItems.map((item) => (
             <button
               key={item.key}
               className="admin-nav-item"
