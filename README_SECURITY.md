@@ -1,9 +1,16 @@
 # Feature 1: Identity & Access — Security Design
 
-This document maps the `accounts` app to OWASP's AAA model (Authentication,
-Authorization, Accounting) and the relevant OWASP Top 10 (2021) categories.
-It's meant to sit in the repo root (or be linked from the main README) as
-the artifact a reviewer reads *before* the code.
+This document maps the project's security-relevant controls to OWASP's AAA
+model (Authentication, Authorization, Accounting) and the relevant OWASP
+Top 10 (2021) categories. Most of it lives in the `accounts` app, since
+that's where identity, sessions, and MFA are decided — but rate limiting
+(`sales`) and transport security (project-wide `config/settings.py`) are
+covered here too, because they're part of the same AAA story: throttling
+is an availability/brute-force control alongside authentication, and
+transport security is what keeps every cookie and credential documented
+elsewhere in this file from leaking in transit. It's meant to sit in the
+repo root (or be linked from the main README) as the artifact a reviewer
+reads *before* the code.
 
 ## Authentication
 
@@ -163,14 +170,14 @@ the indexes already in place; only the notification wiring is missing.
 
 ## How to verify these claims yourself
 
-Run the test suite in `tests.py` — it's written to prove the properties
-above, not just exercise the happy path:
+Run the test suites — they're written to prove the properties above, not
+just exercise the happy path:
 
 ```
-python manage.py test accounts
+python manage.py test accounts sales
 ```
 
-Specifically:
+In `accounts/tests.py`:
 - `AuthenticationLockoutTests` — proves lockout triggers, and that locked
   accounts are rejected even with the correct password.
 - `BranchScopedAccessControlTests` — proves a lower-privileged role is
@@ -178,6 +185,19 @@ Specifically:
   every other app's viewsets).
 - `MassAssignmentProtectionTests` — proves a client cannot escalate
   privilege by adding unexpected fields to a create request.
+- `RefreshCookieTests` — proves the refresh token never appears in a login
+  response body, only in the httpOnly cookie, and that the silent-refresh
+  and logout flows correctly rotate/blacklist it.
+- `PosAdminCookieIsolationTests` — proves logging into one frontend app
+  never silently authenticates the other, via their separate cookie
+  namespaces.
+- `MFATests` — proves enrollment works, a Manager without a valid TOTP
+  code is rejected post-password, and a Cashier's login is unaffected by
+  any of it.
+
+In `sales/tests.py`:
+- `CheckoutThrottleTests` — proves the 31st checkout in a minute for one
+  user gets `429`, and that it doesn't affect a second user's till.
 
 ## Static analysis scope
 
@@ -330,3 +350,9 @@ identified as of this review.
 - `HTTP_X_FORWARDED_FOR` is trusted for audit logging in `views.py`; this is
   only safe if the deployment sits behind a proxy you control that strips
   client-supplied values for this header before setting its own.
+- `SECURE_SSL_REDIRECT` defaults to `True` once `DEBUG=False`, which assumes
+  Django itself terminates TLS. Behind a reverse proxy that terminates TLS
+  instead, `SECURE_PROXY_SSL_HEADER` must also be configured to trust
+  `X-Forwarded-Proto` from that specific proxy, or the redirect will loop —
+  see HTTPS / Transport Security above. Deliberately not configured here
+  without knowing the real deployment topology.
