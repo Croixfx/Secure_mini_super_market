@@ -80,4 +80,15 @@ export const adminApi = {
   sendPurchaseOrder: (id) => request(`/procurement/purchase-orders/${id}/send/`, { method: "POST" }),
   receivePurchaseOrder: (id, receipts) =>
     request(`/procurement/purchase-orders/${id}/receive/`, { method: "POST", body: { receipts } }),
+
+  listBranches: () => request("/branches/"),
+  createBranch: (payload) => request("/branches/", { method: "POST", body: payload }),
+  updateBranch: (id, payload) => request(`/branches/${id}/`, { method: "PATCH", body: payload }),
+
+  // UserAdminViewSet (accounts/views.py) is mounted at /api/users/ —
+  // confirmed against accounts/urls.py's router.register("users", ...)
+  // and config/urls.py's path("api/", include("accounts.urls")).
+  listStaff: () => request("/users/"),
+  createStaff: (payload) => request("/users/", { method: "POST", body: payload }),
+  updateStaff: (id, payload) => request(`/users/${id}/`, { method: "PATCH", body: payload }),
 };

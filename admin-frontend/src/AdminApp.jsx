@@ -8,6 +8,8 @@ import SalesHistoryPage from "./SalesHistoryPage";
 import MfaSettingsPage from "./MfaSettingsPage";
 import PurchaseOrdersPage from "./PurchaseOrdersPage";
 import SuppliersPage from "./SuppliersPage";
+import BranchesPage from "./BranchesPage";
+import StaffPage from "./StaffPage";
 import "./admin-design.css";
 
 export default function AdminApp() {
@@ -158,6 +160,8 @@ export default function AdminApp() {
       {page === "mfa_settings" && <MfaSettingsPage user={user} />}
       {page === "purchase_orders" && <PurchaseOrdersPage />}
       {page === "suppliers" && <SuppliersPage />}
+      {page === "branches" && <BranchesPage />}
+      {page === "staff" && <StaffPage />}
     </AdminLayout>
   );
 }

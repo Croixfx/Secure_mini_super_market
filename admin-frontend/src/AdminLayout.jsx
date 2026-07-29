@@ -11,11 +11,20 @@ const NAV_ITEMS = [
   { key: "purchase_orders", label: "Purchase orders", icon: "▣", managerOnly: true },
   { key: "suppliers", label: "Suppliers", icon: "🚚", managerOnly: true },
   { key: "mfa_settings", label: "Security", icon: "🔒" },
+  // Branch/staff management is Owner-only on the backend (IsOwner) — a
+  // Manager has no business reason to open branches or manage accounts
+  // across the whole business, only their own till/branch.
+  { key: "branches", label: "Branches", icon: "🏬", ownerOnly: true },
+  { key: "staff", label: "Staff", icon: "🧑‍💼", ownerOnly: true },
 ];
 
 export default function AdminLayout({ page, onNavigate, user, onLogout, children }) {
   const initials = (user?.username || "?").slice(0, 2).toUpperCase();
-  const navItems = NAV_ITEMS.filter((item) => !item.managerOnly || user?.role !== "CASHIER");
+  const navItems = NAV_ITEMS.filter(
+    (item) =>
+      (!item.managerOnly || user?.role !== "CASHIER") &&
+      (!item.ownerOnly || user?.role === "OWNER")
+  );
 
   return (
     <div className="admin-root">
