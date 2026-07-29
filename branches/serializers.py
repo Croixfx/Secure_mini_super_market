@@ -27,3 +27,14 @@ class BranchSerializer(serializers.ModelSerializer):
 
     def get_staff_count(self, obj):
         return obj.staff.count()  # `staff` related_name already exists from CustomUser.branch FK
+
+
+class BranchLookupSerializer(serializers.ModelSerializer):
+    """id + name only — no address/phone/staff_count. Used by
+    BranchViewSet.lookup so a Manager can see other branches exist by name
+    (e.g. to pick a stock transfer destination) without exposing the
+    Owner-only operational detail the full BranchSerializer carries."""
+
+    class Meta:
+        model = Branch
+        fields = ["id", "name"]

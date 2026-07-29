@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   // error for that role.
   { key: "purchase_orders", label: "Purchase orders", icon: "▣", managerOnly: true },
   { key: "suppliers", label: "Suppliers", icon: "🚚", managerOnly: true },
+  { key: "transfers", label: "Transfers", icon: "🔁", managerOnly: true },
   { key: "mfa_settings", label: "Security", icon: "🔒" },
   // Branch/staff management is Owner-only on the backend (IsOwner) — a
   // Manager has no business reason to open branches or manage accounts

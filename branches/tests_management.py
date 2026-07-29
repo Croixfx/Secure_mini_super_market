@@ -58,3 +58,20 @@ class BranchManagementAccessControlTests(APITestCase):
         self._login("owner1")
         resp = self.client.get(reverse("branch-detail", args=[self.branch.id]))
         self.assertEqual(resp.data["staff_count"], 1)  # just the manager so far
+
+    def test_manager_can_use_lookup_but_gets_id_and_name_only(self):
+        """The narrow exception to the list lockdown above — a Manager
+        requesting a stock transfer needs to see other branches exist by
+        name, but not the Owner-only operational detail."""
+        Branch.objects.create(name="Remera")
+        self._login("manager1")
+        resp = self.client.get(reverse("branch-lookup"))
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(resp.data), 2)
+        self.assertEqual(set(resp.data[0].keys()), {"id", "name"})
+
+    def test_cashier_cannot_use_branch_lookup_either(self):
+        User.objects.create_user(username="cashier1", password="pw", role=Role.CASHIER, branch=self.branch)
+        self._login("cashier1")
+        resp = self.client.get(reverse("branch-lookup"))
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)

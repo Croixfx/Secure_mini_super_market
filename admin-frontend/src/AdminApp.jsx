@@ -10,6 +10,7 @@ import PurchaseOrdersPage from "./PurchaseOrdersPage";
 import SuppliersPage from "./SuppliersPage";
 import BranchesPage from "./BranchesPage";
 import StaffPage from "./StaffPage";
+import TransfersPage from "./TransfersPage";
 import "./admin-design.css";
 
 export default function AdminApp() {
@@ -25,7 +26,12 @@ export default function AdminApp() {
   function applyAccessToken(access) {
     setAccessToken(access);
     const payload = JSON.parse(atob(access.split(".")[1]));
-    setUser({ username: payload.username, role: payload.role });
+    // branch_id is in every JWT (CustomTokenObtainPairSerializer.get_token())
+    // but was never surfaced here until TransfersPage needed it to decide
+    // whether the logged-in manager is on the dispatching/receiving side of
+    // a given transfer — without it, user.branch is always undefined and
+    // those buttons would never appear for anyone.
+    setUser({ username: payload.username, role: payload.role, branch: payload.branch_id });
   }
 
   // Runs once on app load: a page refresh no longer means "log back in" —
@@ -162,6 +168,7 @@ export default function AdminApp() {
       {page === "suppliers" && <SuppliersPage />}
       {page === "branches" && <BranchesPage />}
       {page === "staff" && <StaffPage />}
+      {page === "transfers" && <TransfersPage user={user} />}
     </AdminLayout>
   );
 }

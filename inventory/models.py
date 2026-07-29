@@ -159,3 +159,70 @@ class StockMovement(models.Model):
     def __str__(self):
         sign = "+" if self.quantity_delta >= 0 else ""
         return f"{self.movement_type} {sign}{self.quantity_delta} {self.product.sku} @ {self.branch}"
+
+
+class TransferStatus(models.TextChoices):
+    REQUESTED = "REQUESTED", "Requested"
+    IN_TRANSIT = "IN_TRANSIT", "In transit"
+    RECEIVED = "RECEIVED", "Received"
+    CANCELLED = "CANCELLED", "Cancelled"
+
+
+class StockTransfer(models.Model):
+    """
+    Lifecycle: REQUESTED -> IN_TRANSIT -> RECEIVED, or REQUESTED -> CANCELLED.
+
+    Stock does NOT leave the source branch's shelf record at REQUESTED —
+    that's just a record that someone asked for it. Real stock only moves
+    when someone at the source branch actually dispatches it (loads the
+    truck), which is the IN_TRANSIT transition. The destination branch
+    then confirms how much actually ARRIVED at RECEIVED — which may be
+    less than what was dispatched (breakage, loss in transit).
+    quantity_received is tracked separately from quantity_requested
+    specifically to make that discrepancy visible and auditable, not
+    silently absorbed. Cancellation is only allowed while still
+    REQUESTED — once dispatched, real stock has already left the source
+    branch's ledger.
+    """
+
+    product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="transfers")
+    from_branch = models.ForeignKey("branches.Branch", on_delete=models.PROTECT, related_name="transfers_out")
+    to_branch = models.ForeignKey("branches.Branch", on_delete=models.PROTECT, related_name="transfers_in")
+
+    quantity_requested = models.PositiveIntegerField()
+    quantity_received = models.PositiveIntegerField(null=True, blank=True)  # set only at RECEIVED
+
+    status = models.CharField(max_length=20, choices=TransferStatus.choices, default=TransferStatus.REQUESTED)
+
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="transfers_requested"
+    )
+    requested_at = models.DateTimeField(auto_now_add=True)
+
+    dispatched_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="transfers_dispatched", null=True, blank=True
+    )
+    dispatched_at = models.DateTimeField(null=True, blank=True)
+
+    received_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="transfers_received", null=True, blank=True
+    )
+    received_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-requested_at"]
+        indexes = [
+            models.Index(fields=["from_branch", "status"]),
+            models.Index(fields=["to_branch", "status"]),
+        ]
+
+    @property
+    def discrepancy(self):
+        """Positive means fewer arrived than were sent (loss/breakage).
+        None until the transfer has actually been received."""
+        if self.quantity_received is None:
+            return None
+        return self.quantity_requested - self.quantity_received
+
+    def __str__(self):
+        return f"Transfer #{self.id}: {self.quantity_requested}x {self.product.sku} {self.from_branch} -> {self.to_branch} ({self.status})"

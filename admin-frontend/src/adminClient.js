@@ -82,6 +82,12 @@ export const adminApi = {
     request(`/procurement/purchase-orders/${id}/receive/`, { method: "POST", body: { receipts } }),
 
   listBranches: () => request("/branches/"),
+  // Owner-only (see listBranches above) exposes address/phone/staff_count.
+  // This is the Manager/Owner-accessible id+name-only lookup — used by
+  // TransfersPage to populate the from/to branch dropdowns, since a
+  // Manager can't hit the full branches list but still needs to know
+  // other branches exist by name to request a transfer.
+  listBranchesLookup: () => request("/branches/lookup/"),
   createBranch: (payload) => request("/branches/", { method: "POST", body: payload }),
   updateBranch: (id, payload) => request(`/branches/${id}/`, { method: "PATCH", body: payload }),
 
@@ -93,4 +99,11 @@ export const adminApi = {
   updateStaff: (id, payload) => request(`/users/${id}/`, { method: "PATCH", body: payload }),
 
   refundSale: (saleId, payload) => request(`/sales/history/${saleId}/refund/`, { method: "POST", body: payload }),
+
+  listTransfers: () => request("/inventory/transfers/"),
+  createTransfer: (payload) => request("/inventory/transfers/", { method: "POST", body: payload }),
+  dispatchTransfer: (id) => request(`/inventory/transfers/${id}/dispatch/`, { method: "POST" }),
+  receiveTransfer: (id, quantity_received) =>
+    request(`/inventory/transfers/${id}/receive/`, { method: "POST", body: { quantity_received } }),
+  cancelTransfer: (id) => request(`/inventory/transfers/${id}/cancel/`, { method: "POST" }),
 };
