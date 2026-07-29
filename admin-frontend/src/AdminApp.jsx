@@ -6,6 +6,7 @@ import DashboardHome from "./DashboardHome";
 import InventoryDashboardPage from "./InventoryDashboardPage";
 import SalesHistoryPage from "./SalesHistoryPage";
 import ComingSoonPage from "./ComingSoonPage";
+import MfaSettingsPage from "./MfaSettingsPage";
 import "./admin-design.css";
 
 export default function AdminApp() {
@@ -14,6 +15,8 @@ export default function AdminApp() {
   const [page, setPage] = useState("dashboard");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [mfaRequired, setMfaRequired] = useState(false);
+  const [mfaCode, setMfaCode] = useState("");
   const [loginError, setLoginError] = useState("");
 
   function applyAccessToken(access) {
@@ -47,6 +50,25 @@ export default function AdminApp() {
       const { access } = await adminApi.login(username, password);
       applyAccessToken(access);
     } catch (err) {
+      // Owner/Manager accounts with a confirmed TOTP device get a 401 here
+      // with mfa_required: true instead of tokens — confirmed against
+      // accounts/views.py: CustomTokenObtainPairView.post, not guessed.
+      if (err.data?.mfa_required) {
+        setMfaRequired(true);
+        setLoginError("");
+      } else {
+        setLoginError(err.message);
+      }
+    }
+  }
+
+  async function handleMfaSubmit(e) {
+    e.preventDefault();
+    setLoginError("");
+    try {
+      const { access } = await adminApi.loginWithMfa(username, password, mfaCode);
+      applyAccessToken(access);
+    } catch (err) {
       setLoginError(err.message);
     }
   }
@@ -60,6 +82,8 @@ export default function AdminApp() {
     }
     clearAccessToken();
     setUser(null);
+    setMfaRequired(false);
+    setMfaCode("");
     setPage("dashboard");
   }
 
@@ -70,27 +94,57 @@ export default function AdminApp() {
   if (!user) {
     return (
       <div className="admin-root" style={{ display: "block" }}>
-        <form
-          onSubmit={handleLogin}
-          style={{
-            maxWidth: 340, margin: "12vh auto", background: "#fff",
-            border: "1px solid #E7E4DC", borderRadius: 16, padding: 28,
-            fontFamily: "Inter, system-ui, sans-serif",
-          }}
-        >
-          <h1 style={{ fontSize: "1.3rem", marginBottom: 4 }}>Sign in</h1>
-          <p style={{ color: "#6B7280", fontSize: "0.88rem", marginBottom: 20 }}>Admin dashboard</p>
-          <div className="admin-field">
-            <label>Username</label>
-            <input value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
-          </div>
-          <div className="admin-field">
-            <label>Password</label>
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-          </div>
-          <button className="admin-button-primary" style={{ width: "100%" }} type="submit">Sign in</button>
-          {loginError && <p style={{ color: "#C1443C", fontSize: "0.85rem", marginTop: 10 }}>{loginError}</p>}
-        </form>
+        <div style={{
+          maxWidth: 340, margin: "12vh auto", background: "#fff",
+          border: "1px solid #E7E4DC", borderRadius: 16, padding: 28,
+          fontFamily: "Inter, system-ui, sans-serif",
+        }}>
+          {!mfaRequired ? (
+            <form onSubmit={handleLogin}>
+              <h1 style={{ fontSize: "1.3rem", marginBottom: 4 }}>Sign in</h1>
+              <p style={{ color: "#6B7280", fontSize: "0.88rem", marginBottom: 20 }}>Admin dashboard</p>
+              <div className="admin-field">
+                <label>Username</label>
+                <input value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
+              </div>
+              <div className="admin-field">
+                <label>Password</label>
+                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+              </div>
+              <button className="admin-button-primary" style={{ width: "100%" }} type="submit">Sign in</button>
+              {loginError && <p style={{ color: "#C1443C", fontSize: "0.85rem", marginTop: 10 }}>{loginError}</p>}
+            </form>
+          ) : (
+            <form onSubmit={handleMfaSubmit}>
+              <h1 style={{ fontSize: "1.3rem", marginBottom: 4 }}>Enter your code</h1>
+              <p style={{ color: "#6B7280", fontSize: "0.88rem", marginBottom: 20 }}>
+                Open your authenticator app and enter the 6-digit code.
+              </p>
+              <div className="admin-field">
+                <input
+                  value={mfaCode}
+                  onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  placeholder="123456"
+                  inputMode="numeric"
+                  autoFocus
+                  style={{ fontSize: "1.2rem", letterSpacing: "0.3em", textAlign: "center" }}
+                />
+              </div>
+              <button className="admin-button-primary" style={{ width: "100%" }} type="submit" disabled={mfaCode.length !== 6}>
+                Verify and sign in
+              </button>
+              <button
+                type="button"
+                className="admin-button-secondary"
+                style={{ width: "100%", marginTop: 8 }}
+                onClick={() => { setMfaRequired(false); setMfaCode(""); setLoginError(""); }}
+              >
+                Back
+              </button>
+              {loginError && <p style={{ color: "#C1443C", fontSize: "0.85rem", marginTop: 10 }}>{loginError}</p>}
+            </form>
+          )}
+        </div>
       </div>
     );
   }
@@ -100,6 +154,7 @@ export default function AdminApp() {
       {page === "dashboard" && <DashboardHome user={user} onNavigate={setPage} />}
       {page === "inventory" && <InventoryDashboardPage role={user.role} />}
       {page === "sales" && <SalesHistoryPage />}
+      {page === "mfa_settings" && <MfaSettingsPage user={user} />}
       {page === "purchase_orders" && (
         <ComingSoonPage title="Purchase orders" description="Track orders to suppliers and receive stock against them." />
       )}

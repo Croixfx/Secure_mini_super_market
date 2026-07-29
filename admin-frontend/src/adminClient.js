@@ -21,12 +21,14 @@ async function request(path, { method = "GET", body, auth = true } = {}) {
 
   if (!resp.ok) {
     let detail = `Request failed (${resp.status})`;
+    let data = {};
     try {
-      const data = await resp.json();
+      data = await resp.json();
       detail = data.detail || JSON.stringify(data);
     } catch { /* not JSON */ }
     const err = new Error(detail);
     err.status = resp.status;
+    err.data = data; // lets callers check err.data.mfa_required, etc.
     throw err;
   }
   if (resp.status === 204) return null;
@@ -40,12 +42,28 @@ export const adminApi = {
   // path prefix gives each app its own cookie namespace instead.
   login: (username, password) =>
     request("/auth/admin/login/", { method: "POST", body: { username, password }, auth: false }),
+  // Step 2 of login for Owner/Manager accounts with a confirmed TOTP
+  // device: same endpoint, same credentials, plus the 6-digit code. The
+  // backend field name is "totp_code" (accounts/views.py:
+  // CustomTokenObtainPairView.post reads request.data.get("totp_code")) —
+  // confirmed against the real view, not guessed.
+  loginWithMfa: (username, password, totpCode) =>
+    request("/auth/admin/login/", {
+      method: "POST",
+      body: { username, password, totp_code: totpCode },
+      auth: false,
+    }),
   // Called once on app load to restore a session from the httpOnly refresh
   // cookie alone — no access token exists yet at this point, hence auth:
   // false. A rejection here (no cookie, or an expired/blacklisted one) is
   // the normal state for "not currently logged in," not an error to surface.
   refreshSilent: () => request("/auth/admin/refresh-silent/", { method: "POST", auth: false }),
   logout: () => request("/auth/admin/logout/", { method: "POST" }),
+  // MFAEnrollView returns { secret, provisioning_uri, qr_code_base64 }.
+  mfaEnroll: () => request("/auth/mfa/enroll/", { method: "POST" }),
+  // MFAEnrollConfirmView reads request.data.get("totp_code") too — same
+  // field name as login, confirmed against accounts/views.py.
+  mfaConfirm: (code) => request("/auth/mfa/enroll/confirm/", { method: "POST", body: { totp_code: code } }),
   listStock: () => request("/inventory/stock/"),
   listProducts: (query = "") => request(`/inventory/products/${query ? `?search=${encodeURIComponent(query)}` : ""}`),
   listCategories: () => request("/inventory/categories/"),

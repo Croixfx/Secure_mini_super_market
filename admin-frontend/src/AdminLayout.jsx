@@ -7,6 +7,7 @@ const NAV_ITEMS = [
   { key: "sales", label: "Sales history", icon: "🧾" },
   { key: "purchase_orders", label: "Purchase orders", icon: "▣" },
   { key: "suppliers", label: "Suppliers", icon: "🚚" },
+  { key: "mfa_settings", label: "Security", icon: "🔒" },
 ];
 
 export default function AdminLayout({ page, onNavigate, user, onLogout, children }) {
