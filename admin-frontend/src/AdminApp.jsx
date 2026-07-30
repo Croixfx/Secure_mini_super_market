@@ -11,6 +11,7 @@ import SuppliersPage from "./SuppliersPage";
 import BranchesPage from "./BranchesPage";
 import StaffPage from "./StaffPage";
 import TransfersPage from "./TransfersPage";
+import MomoQRPage from "./MomoQRPage";
 import "./admin-design.css";
 
 export default function AdminApp() {
@@ -169,6 +170,7 @@ export default function AdminApp() {
       {page === "branches" && <BranchesPage />}
       {page === "staff" && <StaffPage />}
       {page === "transfers" && <TransfersPage user={user} />}
+      {page === "momo_qr" && <MomoQRPage />}
     </AdminLayout>
   );
 }

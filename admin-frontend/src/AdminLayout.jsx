@@ -11,6 +11,9 @@ const NAV_ITEMS = [
   { key: "purchase_orders", label: "Purchase orders", icon: "▣", managerOnly: true },
   { key: "suppliers", label: "Suppliers", icon: "🚚", managerOnly: true },
   { key: "transfers", label: "Transfers", icon: "🔁", managerOnly: true },
+  // A cashier has no reason to edit or reprint this — just glance at the
+  // printed sign already sitting at the till.
+  { key: "momo_qr", label: "MoMo QR", icon: "📱", managerOnly: true },
   { key: "mfa_settings", label: "Security", icon: "🔒" },
   // Branch/staff management is Owner-only on the backend (IsOwner) — a
   // Manager has no business reason to open branches or manage accounts
