@@ -1,0 +1,84 @@
+/* frontend-pos/receipt-print.css */
+
+/* --- On-screen preview (before printing) --- */
+.receipt-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 20, 20, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.receipt-preview-chrome {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  gap: 8px;
+}
+.receipt-close-btn, .receipt-print-btn {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: none;
+  font-family: "Manrope", system-ui, sans-serif;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.receipt-close-btn { background: #fff; color: #232323; border: 1px solid #ddd; }
+.receipt-print-btn { background: #1F4D3E; color: #fff; }
+
+.receipt-58mm {
+  width: 58mm;
+  max-width: 220px;
+  background: #fff;
+  padding: 12px;
+  font-family: "IBM Plex Mono", "Courier New", monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #000;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+}
+.receipt-center { text-align: center; }
+.receipt-bold { font-weight: 700; }
+.receipt-small { font-size: 9px; }
+.receipt-divider {
+  border-top: 1px dashed #000;
+  margin: 6px 0;
+}
+.receipt-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+}
+.receipt-item { margin-bottom: 3px; }
+.receipt-item-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.receipt-total-row { font-size: 13px; margin: 4px 0; }
+
+/* --- Print output: hide EVERYTHING on the page except the receipt --- */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #receipt-print-area, #receipt-print-area * {
+    visibility: visible;
+  }
+  #receipt-print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 58mm;
+    box-shadow: none;
+  }
+  .receipt-preview-chrome {
+    display: none;
+  }
+  @page {
+    size: 58mm auto;
+    margin: 0;
+  }
+}

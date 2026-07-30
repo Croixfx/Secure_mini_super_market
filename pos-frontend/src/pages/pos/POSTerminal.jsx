@@ -1,6 +1,7 @@
 // frontend-pos/POSTerminal.jsx
 import { useEffect, useMemo, useState } from "react";
 import { posApi, setAccessToken, clearAccessToken, newIdempotencyKey } from "./posClient";
+import Receipt from "./Receipt";
 import "./pos-terminal.css";
 
 export default function POSTerminal() {
@@ -18,6 +19,7 @@ export default function POSTerminal() {
   const [paymentMethod, setPaymentMethod] = useState("CASH");
   const [checkoutError, setCheckoutError] = useState("");
   const [receipt, setReceipt] = useState(null);
+  const [showReceipt, setShowReceipt] = useState(false);
   const [idempotencyKey, setIdempotencyKey] = useState(newIdempotencyKey());
   const [submitting, setSubmitting] = useState(false);
 
@@ -154,6 +156,8 @@ export default function POSTerminal() {
     setProducts([]);
     setMfaRequired(false);
     setMfaCode("");
+    setReceipt(null);
+    setShowReceipt(false);
   }
 
   if (restoring) {
@@ -221,10 +225,18 @@ export default function POSTerminal() {
           <span className="stamp">SALE COMPLETE</span>
           <h2>Total: {Number(receipt.total_amount).toFixed(2)}</h2>
           <p>{receipt.items.length} item(s) · {receipt.payment_method}</p>
-          <button className="pos-button-primary" style={{ marginTop: 16 }} onClick={() => setReceipt(null)}>
+          <button className="pos-button-secondary" style={{ marginTop: 16 }} onClick={() => setShowReceipt(true)}>
+            View / print receipt
+          </button>
+          <button
+            className="pos-button-primary"
+            style={{ marginTop: 8 }}
+            onClick={() => { setReceipt(null); setShowReceipt(false); }}
+          >
             New sale
           </button>
         </div>
+        {showReceipt && <Receipt sale={receipt} onClose={() => setShowReceipt(false)} />}
       </div>
     );
   }
